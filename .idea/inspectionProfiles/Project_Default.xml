@@ -1,0 +1,36 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <value>
+          <list size="18">
+            <item index="0" class="java.lang.String" itemvalue="imagecodecs" />
+            <item index="1" class="java.lang.String" itemvalue="graphviz" />
+            <item index="2" class="java.lang.String" itemvalue="torch" />
+            <item index="3" class="java.lang.String" itemvalue="yacs" />
+            <item index="4" class="java.lang.String" itemvalue="medpy" />
+            <item index="5" class="java.lang.String" itemvalue="dicom2nifti" />
+            <item index="6" class="java.lang.String" itemvalue="pytorch-lightning" />
+            <item index="7" class="java.lang.String" itemvalue="bev" />
+            <item index="8" class="java.lang.String" itemvalue="tensorboard" />
+            <item index="9" class="java.lang.String" itemvalue="imops" />
+            <item index="10" class="java.lang.String" itemvalue="tensorboardX" />
+            <item index="11" class="java.lang.String" itemvalue="connectome" />
+            <item index="12" class="java.lang.String" itemvalue="amid" />
+            <item index="13" class="java.lang.String" itemvalue="pdp" />
+            <item index="14" class="java.lang.String" itemvalue="pylidc" />
+            <item index="15" class="java.lang.String" itemvalue="scikit-learn" />
+            <item index="16" class="java.lang.String" itemvalue="reorient-nii" />
+            <item index="17" class="java.lang.String" itemvalue="randomname" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="SpellCheckingInspection" enabled="true" level="INFORMATION" enabled_by_default="true">
+      <option name="processCode" value="true" />
+      <option name="processLiterals" value="true" />
+      <option name="processComments" value="true" />
+    </inspection_tool>
+  </profile>
+</component>
