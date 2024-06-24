@@ -49,7 +49,7 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                 # warp moving segmentation according to computed disp field
                 warped_seg = F.grid_sample(
                     moving_seg.view(1, 1, H, W, D).float(),
-                    grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest', align_corners=False
+                    grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest'
                 ).squeeze(1)
 
                 disp_0 = disp.clone()
@@ -61,7 +61,7 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
 
                 for _ in range(num_warps - 1):
                     # warp moving image with first disp field to generate input for 2nd warp
-                    warped_img = F.grid_sample(img1, grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest', align_corners=False)
+                    warped_img = F.grid_sample(img1, grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest')
                     img1 = torch.clamp(warped_img, -.4, .6)
                     moving_seg = warped_seg[0]
 
@@ -74,13 +74,13 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
 
                     # warp moving segmentation according to computed disp field
                     warped_seg = F.grid_sample(moving_seg.view(1, 1, H, W, D).float(),
-                                           grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest', align_corners=False).squeeze(1)
+                                           grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
 
                     # compute DSC
                     dsc_1 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
 
                     disp_1 = disp.clone()
-                    disp = disp_0 + F.grid_sample(disp_1, disp_0.permute(0,2,3,4,1) + grid0, align_corners=False)
+                    disp = disp_0 + F.grid_sample(disp_1, disp_0.permute(0,2,3,4,1) + grid0)
 
                 d_all0 = torch.cat((d_all0, dsc_0.view(1, -1)), 0)
                 d_all_net = torch.cat((d_all_net, dsc_1.view(1, -1)), 0)
@@ -109,14 +109,14 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                     sdlog_adam.append(torch.log((jac + 3).clamp_(0.000000001, 1000000000)).std().item())
 
                 warped_seg = F.grid_sample(moving_seg_orig.view(1, 1, H, W, D).float(),
-                                       grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest', align_corners=False).squeeze(1)
+                                       grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
 
                 dsc_2 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
-                all_fields[idx] = F.interpolate(flow, scale_factor=.5, mode='trilinear', align_corners=False).cpu()
+                all_fields[idx] = F.interpolate(flow, scale_factor=.5, mode='trilinear').cpu()
                 d_all_adam = torch.cat((d_all_adam, dsc_2.view(1, -1)), 0)
 
             else:
-                all_fields[idx] = F.interpolate(disp, scale_factor=.5, mode='trilinear', align_corners=False).cpu()
+                all_fields[idx] = F.interpolate(disp, scale_factor=.5, mode='trilinear').cpu()
 
     if compute_jacobian:
         print(np.mean(sdlogj_net), np.mean(sdlog_adam))
