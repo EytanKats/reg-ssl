@@ -67,8 +67,25 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to apply contrastive loss during training
+    parser.add_argument(
+        "--contrastive",
+        default="true",
+        type=str,
+    )
+    # temperature factor for infoNCE loss
+    parser.add_argument(
+        "--info_nce_temperature",
+        default=0.1,
+        type=float,
+    )
+    # visualize with matplotlib
+    parser.add_argument(
+        "--visualize",
+        default="false",
+        type=str,
+    )
     args = parser.parse_args()
-
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
