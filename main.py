@@ -14,6 +14,12 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
+        "--ckpt_path",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_things/stage16.pth",
+        help="directory to write results to",
+        type=str,
+    )
+    parser.add_argument(
         "--out_dir",
         default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/original",
         help="directory to write results to",
@@ -62,12 +68,14 @@ if __name__ == "__main__":
         type=str,
     )
     args = parser.parse_args()
+
+
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     import torch
 
     if args.phase == 'test':
-        test()
+        test(args)
 
     else:
         train(args)
