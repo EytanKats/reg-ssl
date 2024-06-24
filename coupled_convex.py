@@ -52,13 +52,13 @@ def inverse_consistency(disp_field1s, disp_field2s, iter=20):
         disp_field1i = disp_field1s.clone()
         disp_field2i = disp_field2s.clone()
 
-        identity = F.affine_grid(torch.eye(3,4).unsqueeze(0),(1,1,H,W,D)).permute(0,4,1,2,3).to(disp_field1s.device).to(disp_field1s.dtype)
+        identity = F.affine_grid(torch.eye(3,4).unsqueeze(0),(1,1,H,W,D), align_corners=False).permute(0,4,1,2,3).to(disp_field1s.device).to(disp_field1s.dtype)
         for i in range(iter):
             disp_field1s = disp_field1i.clone()
             disp_field2s = disp_field2i.clone()
 
-            disp_field1i = 0.5*(disp_field1s-F.grid_sample(disp_field2s,(identity+disp_field1s).permute(0,2,3,4,1)))
-            disp_field2i = 0.5*(disp_field2s-F.grid_sample(disp_field1s,(identity+disp_field2s).permute(0,2,3,4,1)))
+            disp_field1i = 0.5*(disp_field1s-F.grid_sample(disp_field2s,(identity+disp_field1s).permute(0,2,3,4,1), align_corners=False))
+            disp_field2i = 0.5*(disp_field2s-F.grid_sample(disp_field1s,(identity+disp_field2s).permute(0,2,3,4,1), align_corners=False))
 
     return disp_field1i,disp_field2i
 
@@ -69,7 +69,7 @@ def coupled_convex(feat_fix, feat_mov, use_ice, img_shape):
     ssd = correlate(5 * (feat_fix), 5 * (feat_mov), disp_hw)
     disp_mesh_t = F.affine_grid(disp_hw * torch.eye(3, 4).cuda().unsqueeze(0),
                                 (1, 1, disp_hw * 2 + 1, disp_hw * 2 + 1, disp_hw * 2 + 1),
-                                align_corners=True).permute(0, 4, 1, 2, 3).reshape(3, -1, 1)
+                                align_corners=False).permute(0, 4, 1, 2, 3).reshape(3, -1, 1)
     H2, W2, D2 = ssd.shape[-3:]
     disp_soft0 = coupled_convex_optim(ssd, disp_mesh_t)
 
@@ -81,12 +81,12 @@ def coupled_convex(feat_fix, feat_mov, use_ice, img_shape):
 
     scale = torch.tensor([H2 - 1, W2 - 1, D2 - 1]).view(1, 3, 1, 1, 1).cuda() / 2
     disp_torch = F.avg_pool3d(
-        F.avg_pool3d(F.interpolate((disp_soft0 / scale).flip(1), scale_factor=2, mode='trilinear'), 3,
+        F.avg_pool3d(F.interpolate((disp_soft0 / scale).flip(1), scale_factor=2, mode='trilinear', align_corners=False), 3,
                      padding=1, stride=1), 3, padding=1, stride=1)
 
     disp_soft1 = F.interpolate(disp_torch, scale_factor=2, mode='trilinear', align_corners=False,
                                recompute_scale_factor=False)
     disp_soft2 = F.avg_pool3d(F.avg_pool3d(disp_soft1, 3, stride=1, padding=1), 3, stride=1, padding=1)
-    disp_soft3 = F.interpolate(disp_soft2, size=img_shape, mode='trilinear')
+    disp_soft3 = F.interpolate(disp_soft2, size=img_shape, mode='trilinear', align_corners=False)
 
     return disp_soft3

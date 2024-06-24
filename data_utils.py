@@ -41,25 +41,25 @@ def prepare_data(data_split):
 
 # affine augmentation during training
 def augment_affine_nl(disp_field2, strength=.05):
-    field_lr = F.interpolate(disp_field2, scale_factor=0.5, mode='trilinear')
-    field_hr = F.interpolate(field_lr, scale_factor=4, mode='trilinear')
+    field_lr = F.interpolate(disp_field2, scale_factor=0.5, mode='trilinear', align_corners=False)
+    field_hr = F.interpolate(field_lr, scale_factor=4, mode='trilinear', align_corners=False)
     A1 = (torch.randn(1, 4, 4) * strength * 1.5 + torch.eye(4, 4).unsqueeze(0)).cuda();
     A1[:, 3, :3] = 0
     A2 = (torch.randn(1, 4, 4) * strength + torch.eye(4, 4).unsqueeze(0)).cuda();
     A2[:, 3, :3] = 0
     A2 = A2.matmul(A1)
 
-    affine1 = F.affine_grid(A1[:, :3], (1, 1, 192, 160, 256))
-    affine2 = F.affine_grid(A2[:, :3], (1, 1, 192, 160, 256))
+    affine1 = F.affine_grid(A1[:, :3], (1, 1, 192, 160, 256), align_corners=False)
+    affine2 = F.affine_grid(A2[:, :3], (1, 1, 192, 160, 256), align_corners=False)
 
     A12 = (torch.from_numpy(scipy.linalg.expm(
         scipy.linalg.logm(A1[0].cpu().double().numpy(), disp=False)[0] - scipy.linalg.logm(A2[0].cpu().double().numpy(), disp=False)[
             0]))).unsqueeze(0).cuda().float()
-    affine12 = F.affine_grid(A12[:, :3], (1, 1, 192, 160, 256))
-    grid0 = F.affine_grid(torch.eye(3, 4).cuda().unsqueeze(0), (1, 1, 192, 160, 256))
+    affine12 = F.affine_grid(A12[:, :3], (1, 1, 192, 160, 256), align_corners=False)
+    grid0 = F.affine_grid(torch.eye(3, 4).cuda().unsqueeze(0), (1, 1, 192, 160, 256), align_corners=False)
 
-    field_hr2 = F.grid_sample(field_hr.cuda(), affine12.cuda())
+    field_hr2 = F.grid_sample(field_hr.cuda(), affine12.cuda(), align_corners=False)
 
     disp_field_aff = F.interpolate(field_hr2.cuda() + (affine12.cuda() - grid0).permute(0, 4, 1, 2, 3),
-                                   scale_factor=0.5, mode='trilinear')
+                                   scale_factor=0.5, mode='trilinear', align_corners=False)
     return disp_field_aff, affine1, affine2
