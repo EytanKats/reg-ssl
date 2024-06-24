@@ -15,8 +15,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ckpt_path",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_things/stage16.pth",
-        help="directory to write results to",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/clw1_s32/stage16.pth",
+        help="chekpoint to load",
         type=str,
     )
     parser.add_argument(
