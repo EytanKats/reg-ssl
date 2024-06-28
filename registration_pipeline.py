@@ -24,7 +24,7 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
 
     _, _, H, W, D = all_img.shape
     all_fields = torch.zeros(len(pairs), 3, H // 2, W // 2, D // 2)
-    grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda(), (1, 1, H, W, D), align_corners=False)
+    grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda(), (1, 1, H, W, D))
 
     feature_net.eval()
 

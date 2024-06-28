@@ -14,12 +14,14 @@ def AdamReg(mind_fix, mind_mov, dense_flow, reg_fac=1.):
     with torch.enable_grad():
         grid_sp = 2
 
-        disp_lr = F.interpolate(disp_hr, size=(H // grid_sp, W // grid_sp, D // grid_sp), mode='trilinear', align_corners=False)
+        disp_lr = F.interpolate(disp_hr, size=(H // grid_sp, W // grid_sp, D // grid_sp), mode='trilinear',
+                                align_corners=False)
         net = nn.Sequential(nn.Conv3d(3, 1, (H // grid_sp, W // grid_sp, D // grid_sp), bias=False))
         net[0].weight.data[:] = disp_lr.float().cpu().data / grid_sp
         net.cuda()
         optimizer = torch.optim.Adam(net.parameters(), lr=1)
-        grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda(), (1, 1, H // grid_sp, W // grid_sp, D // grid_sp), align_corners=False)
+        grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda(), (1, 1, H // grid_sp, W // grid_sp, D // grid_sp),
+                              align_corners=False)
         # run Adam optimisation with diffusion regularisation and B-spline smoothing
         lambda_weight = .65
         for iter in range(50):
@@ -32,7 +34,8 @@ def AdamReg(mind_fix, mind_mov, dense_flow, reg_fac=1.):
             scale = torch.tensor(
                 [(H // grid_sp - 1) / 2, (W // grid_sp - 1) / 2, (D // grid_sp - 1) / 2]).cuda().unsqueeze(0)
             grid_disp = grid0.view(-1, 3).cuda().float() + ((disp_sample.view(-1, 3)) / scale).flip(1).float()
-            patch_mov_sampled = F.grid_sample(mind_mov.cuda().float(), grid_disp.view(1, H // grid_sp, W // grid_sp, D // grid_sp, 3).cuda(), align_corners=False, mode='bilinear')
+            patch_mov_sampled = F.grid_sample(mind_mov.cuda().float(),
+                                              grid_disp.view(1, H // grid_sp, W // grid_sp, D // grid_sp, 3).cuda() , align_corners=False, mode='bilinear')
             sampled_cost = (patch_mov_sampled - mind_fix.cuda()).pow(2).mean(1) * 12
             loss = sampled_cost.mean()
 

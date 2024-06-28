@@ -146,16 +146,16 @@ def train(args):
 
                                 disp_field = all_fields[idx[j]:idx[j] + 1].cuda()
                                 disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field)
-                                img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1], align_corners=False) + min_val_0
-                                img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1], align_corners=False) + min_val_1
+                                img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
+                                img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
                                 target[j:j + 1] = disp_field_aff
                     else:
                         with torch.no_grad():
                             for j in range(len(idx)):
                                 input_field = all_fields[idx[j]:idx[j] + 1].cuda()
                                 disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0.)
-                                img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1], align_corners=False)
-                                img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1], align_corners=False)
+                                img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
+                                img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
                                 target[j:j + 1] = disp_field_aff
 
                     # visualize input data
@@ -205,8 +205,8 @@ def train(args):
 
                                 disp_field = all_fields[idx[j]:idx[j] + 1].cuda()
                                 _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field)
-                                img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=False) + min_val_0
-                                img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=False) + min_val_1
+                                img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
+                                img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
                             features_fix_aug = feature_net[:-4](img0_aug)
                             features_mov_aug = feature_net[:-4](img1_aug)
@@ -225,18 +225,19 @@ def train(args):
                         featvecs_warped_list = []
                         for j in range(len(idx)):
 
-                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=False)
-                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=False)
+                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
+                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
 
                             # Get locations to sample from feature masks
                             ids = torch.argwhere(torch.zeros(h, w, d) > -1)
                             ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
-                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
 
                             # Sample feature vectors
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=5000)]
                             featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
                             featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=5000)]
                             featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
                             featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
