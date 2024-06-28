@@ -208,6 +208,26 @@ def train(args):
                                 img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
                                 img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
+                            # visualize data for contrastive loss
+                            if visualize:
+                                for j in range(len(idx)):
+                                    image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
+                                    image_0_aug = img0_aug.data.cpu().numpy()[j, 0, ...].copy()
+
+                                    image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
+                                    image_1_aug = img1_aug.data.cpu().numpy()[j, 0, ...].copy()
+
+                                    center_slice = image_0.shape[2] // 2
+
+                                    f, axarr = plt.subplots(2, 2)
+                                    axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
+                                    axarr[0, 1].imshow(image_0_aug[:, :, center_slice], cmap='gray')
+                                    axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
+                                    axarr[1, 1].imshow(image_1_aug[:, :, center_slice], cmap='gray')
+
+                                    plt.show()
+                                    plt.close()
+
                             features_fix_aug = feature_net[:-4](img0_aug)
                             features_mov_aug = feature_net[:-4](img1_aug)
 
@@ -240,6 +260,30 @@ def train(args):
                             ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=5000)]
                             featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
                             featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+
+                        # visualize features
+                        if visualize:
+                            for j in range(len(idx)):
+                                f_fix = features_fix.data.cpu().numpy()[j, 64, ...].copy()
+                                f_fix_aug = features_fix_aug.data.cpu().numpy()[j, 64, ...].copy()
+                                f_fix_warped = features_fix_warped.data.cpu().numpy()[j, 64, ...].copy()
+
+                                f_mov = features_mov.data.cpu().numpy()[j, 64, ...].copy()
+                                f_mov_aug = features_mov_aug.data.cpu().numpy()[j, 64, ...].copy()
+                                f_mov_warped = features_mov_warped.data.cpu().numpy()[j, 64, ...].copy()
+
+                                center_slice = f_fix.shape[2] // 2
+
+                                f, axarr = plt.subplots(2, 3)
+                                axarr[0, 0].imshow(f_fix[:, :, center_slice], cmap='gray')
+                                axarr[0, 1].imshow(f_fix_aug[:, :, center_slice], cmap='gray')
+                                axarr[0, 2].imshow(f_fix_warped[:, :, center_slice], cmap='gray')
+                                axarr[1, 0].imshow(f_mov[:, :, center_slice], cmap='gray')
+                                axarr[1, 1].imshow(f_mov_aug[:, :, center_slice], cmap='gray')
+                                axarr[1, 2].imshow(f_mov_warped[:, :, center_slice], cmap='gray')
+
+                                plt.show()
+                                plt.close()
 
                         loss += 1 * info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
 
