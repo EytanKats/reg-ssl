@@ -98,8 +98,8 @@ def train(args):
         optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
         eta_min = 0.00001
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 500 * 2, 1, eta_min=eta_min)
-        run_lr = torch.zeros(16000 * 2)
-        half_iterations = 16000 * 2
+        run_lr = torch.zeros(8000 * 2)
+        half_iterations = 8000 * 2
         run_loss = torch.zeros(half_iterations)
         scaler = torch.cuda.amp.GradScaler()
 
@@ -253,11 +253,11 @@ def train(args):
                             ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
 
                             # Sample feature vectors
-                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=5000)]
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
                             featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
                             featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
-                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=5000)]
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
                             featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
                             featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
@@ -328,7 +328,14 @@ def train(args):
                         # w/o Adam finetuning
                         all_fields, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False,
                                                                             num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
-                        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean())
+
+                        # w Adam finetuning
+                        _, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True,
+                                                                        num_warps=num_warps,
+                                                                        ice=use_ice, reg_fac=reg_fac)
+
+                        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>',
+                              d_all_adam[:3].mean())
 
                     feature_net.train()
 

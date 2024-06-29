@@ -46,7 +46,7 @@ if __name__ == "__main__":
     # regularization weight in Adam optimization during training
     parser.add_argument(
         "--reg_fac",
-        default=1.,
+        default=10.,
         type=float,
     )
     # whether to perform difficulty-weighted data sampling during training
