@@ -22,6 +22,7 @@ def train(args):
     wandb.init(
         project="reg-ssl",
         name=os.path.basename(args.out_dir),
+        config=args
     )
 
     out_dir = args.out_dir
