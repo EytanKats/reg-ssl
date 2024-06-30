@@ -73,6 +73,18 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to use intensity augmentations for contrastive loss
+    parser.add_argument(
+        "--use_intensity_aug",
+        default="false",
+        type=str,
+    )
+    # whether to use deformable augmentations for contrastive loss
+    parser.add_argument(
+        "--use_deformable_aug",
+        default="false",
+        type=str,
+    )
     # temperature factor for infoNCE loss
     parser.add_argument(
         "--info_nce_temperature",

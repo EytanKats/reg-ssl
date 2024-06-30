@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import WeightedRandomSampler
 
 from info_nce import InfoNCE
+from augmentation_utils import get_disp_field, nonlinear_transformation
 from data_utils import prepare_data, augment_affine_nl, resize_with_grid_sample_3d
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
@@ -28,6 +29,8 @@ def train(args):
     do_augment = True if args.augment == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
+    use_deformable_aug = True if args.use_deformable_aug == 'true' else False
+    use_intensity_aug = True if args.use_intensity_aug == 'true' else False
     visualize = True if args.visualize == 'true' else False
 
     # Loading training data (segmentations only used for validation after each stage)
@@ -113,6 +116,8 @@ def train(args):
         affine2 = torch.zeros(2,  H, W, D, 3).cuda()
         affine1_aug = torch.zeros(2, H, W, D, 3).cuda()
         affine2_aug = torch.zeros(2, H, W, D, 3).cuda()
+        combined1_aug = torch.zeros(2, H, W, D, 3).cuda()
+        combined2_aug = torch.zeros(2, H, W, D, 3).cuda()
 
         t0 = time.time()
         with tqdm(total=half_iterations, file=sys.stdout, colour="red") as pbar:
@@ -205,8 +210,29 @@ def train(args):
 
                                 disp_field = all_fields[idx[j]:idx[j] + 1].cuda()
                                 _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field)
-                                img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
-                                img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
+
+                                if use_deformable_aug:
+
+                                    disp_deform, _ = get_disp_field(
+                                        2,
+                                        (192, 160, 256),
+                                        factor=0.1,
+                                        interpolation_factor=5,
+                                        device='cuda',
+                                    )
+
+                                    combined1_aug[j:j + 1] = affine1_aug[j:j + 1] + disp_deform[0:1]
+                                    combined2_aug[j:j + 1] = affine2_aug[j:j + 1] + disp_deform[1:2]
+                                else:
+                                    combined1_aug[j:j + 1] = affine1_aug[j:j + 1]
+                                    combined2_aug[j:j + 1] = affine2_aug[j:j + 1]
+
+                                img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, combined1_aug[j:j + 1], align_corners=True) + min_val_0
+                                img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, combined2_aug[j:j + 1], align_corners=True) + min_val_1
+
+                                if use_intensity_aug:
+                                    img0_aug[j, 0] = torch.tensor(nonlinear_transformation(img0_aug[j, 0].cpu().numpy(), prob=0.5)).cuda()
+                                    img1_aug[j, 0] = torch.tensor(nonlinear_transformation(img1_aug[j, 0].cpu().numpy(), prob=0.5)).cuda()
 
                             # visualize data for contrastive loss
                             if visualize:
@@ -238,15 +264,15 @@ def train(args):
                         features_mov_warped = torch.zeros((2, 128, 48, 40, 64)).cuda()
 
                         h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
-                        affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                        affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                        combined1_feat = resize_with_grid_sample_3d(combined1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                        combined2_feat = resize_with_grid_sample_3d(combined2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
                         featvecs_aug_list = []
                         featvecs_warped_list = []
                         for j in range(len(idx)):
 
-                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
-                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], combined1_feat[j:j + 1], align_corners=True)
+                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], combined2_feat[j:j + 1], align_corners=True)
 
                             # Get locations to sample from feature masks
                             ids = torch.argwhere(torch.zeros(h, w, d) > -1)
