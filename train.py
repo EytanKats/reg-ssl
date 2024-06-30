@@ -60,12 +60,12 @@ def train(args):
     if use_adam:
 
         # w/o Adam finetuning
-        all_fields_noadam, d_all_net, d_all0, _, _ = update_fields(
+        all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(
             data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac
         )
 
         # w/ Adam finetuning
-        all_fields, _, _, d_all_adam, _ = update_fields(
+        all_fields, _, _, d_all_adam, _, _, _ = update_fields(
             data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac
         )
 
@@ -81,7 +81,7 @@ def train(args):
 
     else:
         # w/o Adam finetuning
-        all_fields, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps,
+        all_fields, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps,
                                                             ice=use_ice, reg_fac=reg_fac)
         print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean())
 
@@ -314,14 +314,14 @@ def train(args):
                     #  recompute pseudo-labels with current model weights
                     if use_adam:
                         # w/o Adam finetuning
-                        all_fields_noadam, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                        all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
                         # w Adam finetuning
-                        all_fields, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                        all_fields, _, _, d_all_adam, _, _, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
 
                         # test data w Adam finetuning
-                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(
+                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, sdlogj, sdlogj_adam = update_fields(
                             data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                            log_to_wandb=True, iteration=i
+                            log_to_wandb=True, iteration=i, compute_jacobian=True
                         )
 
                         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
@@ -335,14 +335,14 @@ def train(args):
 
                     else:
                         # w/o Adam finetuning
-                        all_fields, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                        all_fields, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
                         # w Adam finetuning
-                        _, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                        _, _, _, d_all_adam, _, _, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
 
                         # test data w Adam finetuning
-                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(
+                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, sdlogj, sdlogj_adam = update_fields(
                             data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                            log_to_wandb=True, iteration=i
+                            log_to_wandb=True, iteration=i, compute_jacobian=True
                         )
 
                         print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
@@ -353,6 +353,8 @@ def train(args):
 
                     wandb.log({"test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
                     wandb.log({"test_dice_with_adam_finetuing": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"test_sdlogj_wo_adam": sdlogj}, step=i)
+                    wandb.log({"test_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                     feature_net.train()
 
