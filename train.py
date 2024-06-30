@@ -1,7 +1,8 @@
+import os
 import sys
 import time
+import wandb
 from tqdm import tqdm
-import os
 import matplotlib.pyplot as plt
 
 import torch
@@ -16,6 +17,13 @@ from coupled_convex import coupled_convex
 
 
 def train(args):
+
+    # Initialize wandb
+    wandb.init(
+        project="reg-ssl",
+        name=os.path.basename(args.out_dir),
+    )
+
     out_dir = args.out_dir
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -30,8 +38,9 @@ def train(args):
     info_nce_temperature = args.info_nce_temperature
     visualize = True if args.visualize == 'true' else False
 
-    # Loading training data (segmentations only used for validation after each stage)
+    # Loading data (segmentations only used for validation after each stage)
     data = prepare_data(data_split='train')
+    data_test = prepare_data(data_split='test')
 
     # initialize feature net
     feature_net = nn.Sequential(
@@ -305,37 +314,45 @@ def train(args):
                     #  recompute pseudo-labels with current model weights
                     if use_adam:
                         # w/o Adam finetuning
-                        all_fields_noadam, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False,
-                                                                                 num_warps=num_warps, ice=use_ice,
-                                                                                 reg_fac=reg_fac)
+                        all_fields_noadam, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
                         # w Adam finetuning
-                        all_fields, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps,
-                                                                        ice=use_ice, reg_fac=reg_fac)
+                        all_fields, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+
+                        # test data w Adam finetuning
+                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(
+                            data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                            log_to_wandb=True, iteration=i
+                        )
 
                         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
                         with torch.no_grad():
                             with torch.cuda.amp.autocast():
-                                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8,
-                                                                                              8:-8,
-                                                                                              8:-8].cuda()) * torch.tensor(
-                                    [D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8,8:-8,8:-8].cuda())
+                                            * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
-                        print('fields updated val error :', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>',
-                              d_all_adam[:3].mean())
+                        print('fields updated val error :', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
 
                     else:
                         # w/o Adam finetuning
-                        all_fields, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False,
-                                                                            num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
-
+                        all_fields, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
                         # w Adam finetuning
-                        _, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True,
-                                                                        num_warps=num_warps,
-                                                                        ice=use_ice, reg_fac=reg_fac)
+                        _, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
 
-                        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>',
-                              d_all_adam[:3].mean())
+                        # test data w Adam finetuning
+                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(
+                            data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                            log_to_wandb=True, iteration=i
+                        )
+
+                        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
+
+                    # Log metrics to wandb
+                    wandb.log({"val_dice_wo_adam_finetuing": d_all0[:3].mean()}, step=i)
+                    wandb.log({"val_dice_with_adam_finetuing": d_all_adam[:3].mean()}, step=i)
+
+                    wandb.log({"test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"test_dice_with_adam_finetuing": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
 
                     feature_net.train()
 

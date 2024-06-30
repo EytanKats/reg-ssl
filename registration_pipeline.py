@@ -1,5 +1,8 @@
-from tqdm import trange
+import wandb
 import numpy as np
+from tqdm import trange
+import matplotlib.pyplot as plt
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +12,7 @@ from eval_utils import dice_coeff, jacobian_determinant
 from adam_instance_opt import AdamReg
 
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time
-def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1.):
+def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
     all_img = data['images']
     all_seg = data['segmentations']
     pairs = data['pairs']
@@ -73,8 +76,7 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                     disp = coupled_convex(features_fix, features_mov, use_ice=ice, img_shape=(H, W, D))
 
                     # warp moving segmentation according to computed disp field
-                    warped_seg = F.grid_sample(moving_seg.view(1, 1, H, W, D).float(),
-                                           grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
+                    warped_seg = F.grid_sample(moving_seg.view(1, 1, H, W, D).float(), grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
 
                     # compute DSC
                     dsc_1 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
@@ -108,8 +110,28 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                     jac = jacobian_determinant(dense_flow)
                     sdlog_adam.append(torch.log((jac + 3).clamp_(0.000000001, 1000000000)).std().item())
 
-                warped_seg = F.grid_sample(moving_seg_orig.view(1, 1, H, W, D).float(),
-                                       grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
+                warped_seg = F.grid_sample(moving_seg_orig.view(1, 1, H, W, D).float(), grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
+
+                if log_to_wandb and idx % 5 == 0:
+
+                    # warp moving image and visualize central slice of warped and fixed image
+                    warped_img_adam = F.grid_sample(img1_orig, grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest')
+                    warped_img_adam = torch.clamp(warped_img_adam, -.4, .6)
+
+                    fixed = img0.data.cpu().numpy()[0, 0, ...].copy()
+                    moving = img1_orig.data.cpu().numpy()[0, 0, ...].copy()
+                    warped = warped_img_adam.data.cpu().numpy()[0, 0, ...].copy()
+
+                    center_slice = fixed.shape[2] // 2
+
+                    f, axarr = plt.subplots(1, 3, figsize=(15, 15))
+                    axarr[0].imshow(fixed[:, :, center_slice], cmap='gray')
+                    axarr[1].imshow(moving[:, :, center_slice], cmap='gray')
+                    axarr[2].imshow(warped[:, :, center_slice], cmap='gray')
+
+                    wandb.log({f'fixed-warped-pair-{idx}': f}, iteration)
+
+                    plt.close(f)
 
                 dsc_2 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
                 all_fields[idx] = F.interpolate(flow, scale_factor=.5, mode='trilinear').cpu()
