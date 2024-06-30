@@ -35,6 +35,7 @@ def train(args):
     use_adam = True if args.adam == 'true' else False
     do_sampling = True if args.sampling == 'true' else False
     do_augment = True if args.augment == 'true' else False
+    apply_ct_abdomen_window = True if args.apply_ct_abdomen_window == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
     visualize = True if args.visualize == 'true' else False
@@ -142,11 +143,11 @@ def train(args):
                     img1_ = data['images'][data['pairs'][idx, 1]].cuda()
 
                     # apply abdomen CT window
-                    with torch.no_grad():
-                        for j in range(len(idx)):
-
-                            img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
-                            img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
+                    if apply_ct_abdomen_window:
+                        with torch.no_grad():
+                            for j in range(len(idx)):
+                                img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
+                                img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
 
                     if do_augment:
                         with torch.no_grad():
