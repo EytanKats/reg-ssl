@@ -79,6 +79,12 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to apply inter-image contrastive loss during training
+    parser.add_argument(
+        "--inter_image_contrastive",
+        default="true",
+        type=str,
+    )
     # temperature factor for infoNCE loss
     parser.add_argument(
         "--info_nce_temperature",

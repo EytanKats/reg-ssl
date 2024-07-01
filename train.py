@@ -37,6 +37,7 @@ def train(args):
     do_augment = True if args.augment == 'true' else False
     apply_ct_abdomen_window = True if args.apply_ct_abdomen_window == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
+    apply_inter_image_contrastive_loss = True if args.inter_image_contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
     visualize = True if args.visualize == 'true' else False
 
@@ -202,9 +203,36 @@ def train(args):
                     disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H//2, W//2, D//2))
 
                     # consistency loss between prediction and pseudo label
-                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target[:, :, 8:-8, 8:-8, 8:-8]) * torch.tensor(
-                        [D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target[:, :, 8:-8, 8:-8, 8:-8])
+                           * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                     loss = tre.mean()
+
+                    # apply inter-image consistency loss starting from stage 8, when the images already quite prealigned
+                    if stage >= 8 and apply_inter_image_contrastive_loss:
+
+                        features_fix_cl = feature_net[:-4](img0)
+                        features_mov_cl = feature_net[:-4](img1)
+
+                        h, w, d = features_fix_cl.shape[-3], features_fix_cl.shape[-2], features_fix_cl.shape[-1]
+                        grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda(), (1, 1, h, w, d))
+
+                        disp_pred_interpolated = F.interpolate(target, size=(h, w, d), mode='trilinear')
+                        features_moved_cl = F.grid_sample(features_mov_cl, grid0 + disp_pred_interpolated.permute(0, 2, 3, 4, 1), mode='bilinear', align_corners=True)
+
+                        featvecs_fix_list = []
+                        featvecs_moved_list = []
+                        for j in range(len(idx)):
+
+                            # Get locations to sample from feature masks
+                            ids = torch.argwhere(torch.zeros(h, w, d) > -1)
+                            ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
+
+                            # Sample feature vectors
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
+                            featvecs_fix_list.append(features_fix_cl[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            featvecs_moved_list.append(features_moved_cl[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+
+                        loss += 1 * info_loss(torch.concat(featvecs_fix_list), torch.concat(featvecs_moved_list))
 
                     # apply contrastive loss
                     if apply_contrastive_loss:
