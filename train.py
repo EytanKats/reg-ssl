@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import WeightedRandomSampler
 
+from ema import EMA
 from info_nce import InfoNCE
 from data_utils import prepare_data, augment_affine_nl, resize_with_grid_sample_3d
 from registration_pipeline import update_fields
@@ -36,6 +37,7 @@ def train(args):
     do_sampling = True if args.sampling == 'true' else False
     do_augment = True if args.augment == 'true' else False
     apply_ct_abdomen_window = True if args.apply_ct_abdomen_window == 'true' else False
+    use_ema = True if args.ema == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     apply_inter_image_contrastive_loss = True if args.inter_image_contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
@@ -54,6 +56,9 @@ def train(args):
         nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
         nn.Conv3d(128, 16, 1)
     ).cuda()
+
+    # initialize EMA
+    ema = EMA(feature_net, 0.99)
 
     print()
 
@@ -120,6 +125,8 @@ def train(args):
         img1 = torch.zeros(2, 1, H, W, D).cuda()
         img0_aug = torch.zeros(2, 1, H, W, D).cuda()
         img1_aug = torch.zeros(2, 1, H, W, D).cuda()
+        img0_ema = torch.zeros(2, 1, H, W, D).cuda()
+        img1_ema = torch.zeros(2, 1, H, W, D).cuda()
         target = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
         affine1 = torch.zeros(2,  H, W, D, 3).cuda()
         affine2 = torch.zeros(2,  H, W, D, 3).cuda()
@@ -170,6 +177,17 @@ def train(args):
                                 img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
                                 target[j:j + 1] = disp_field_aff
 
+                    # to keep the displacement field unchanged apply same augmentation for fixed and moving image
+                    if use_ema:
+                        with torch.no_grad():
+                            for j in range(len(idx)):
+                                min_val_0 = torch.min(img0[j:j + 1])
+                                min_val_1 = torch.min(img1[j:j + 1])
+
+                                _, affine1[j:j + 1], _ = augment_affine_nl(target[j:j + 1])
+                                img0_ema[j:j + 1] = F.grid_sample(img0[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
+                                img1_ema[j:j + 1] = F.grid_sample(img1[j:j + 1] - min_val_1, affine1[j:j + 1]) + min_val_1
+
                     # visualize input data
                     if visualize:
                         for j in range(len(idx)):
@@ -201,6 +219,21 @@ def train(args):
 
                     # differentiable optimization with optimizer h (coupled convex)
                     disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H//2, W//2, D//2))
+
+                    # feature extraction with teacher model
+                    if use_ema:
+
+                        ema.apply_shadow()
+
+                        # apply teacher model
+                        with torch.no_grad():
+                            ema_features_fix = feature_net(img0_ema)
+                            ema_features_mov = feature_net(img1_ema)
+
+                            # calculate pseudo-target
+                            target = coupled_convex(ema_features_fix, ema_features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+
+                        ema.restore()
 
                     # consistency loss between prediction and pseudo label
                     tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target[:, :, 8:-8, 8:-8, 8:-8])
@@ -333,6 +366,9 @@ def train(args):
                 lr1 = float(scheduler.get_last_lr()[0])
                 run_lr[i] = lr1
 
+                if use_ema:
+                    ema.update()
+
                 if ((i % 1000 == 999)):
                     # end of stage
                     stage += 1
@@ -378,7 +414,7 @@ def train(args):
                         print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
 
                     # Log metrics to wandb
-                    wandb.log({"val_dice_wo_adam_finetuing": d_all0[:3].mean()}, step=i)
+                    wandb.log({"val_dice_wo_adam_finetuing": d_all_net[:3].mean()}, step=i)
                     wandb.log({"val_dice_with_adam_finetuing": d_all_adam[:3].mean()}, step=i)
 
                     wandb.log({"test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)

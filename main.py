@@ -73,6 +73,12 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to use teacher-student approach during the training
+    parser.add_argument(
+        "--ema",
+        default="true",
+        type=str,
+    )
     # whether to apply contrastive loss during training
     parser.add_argument(
         "--contrastive",
