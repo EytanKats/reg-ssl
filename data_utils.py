@@ -100,3 +100,20 @@ def resize_with_grid_sample_3d(tensor_to_resize, out_d, out_h, out_w):
     resized_tensor = F.grid_sample(tensor_to_resize, grid, mode='bilinear', align_corners=True)
 
     return resized_tensor
+
+
+def get_rand_affine(batch_size, strength=0.05, flip=False):
+    affine = torch.cat(
+        (
+            torch.randn(batch_size, 3, 4) * strength + torch.eye(3, 4).unsqueeze(0),
+            torch.tensor([0, 0, 0, 1]).view(1, 1, 4).repeat(batch_size, 1, 1),
+        ),
+        1,
+    )
+
+    if flip:
+        flip_affine = torch.diag(
+            torch.cat([(2 * (torch.rand(3) > 0.5).float() - 1), torch.tensor([1.0])])
+        )
+        affine = affine @ flip_affine
+    return affine[:, :3], affine.inverse()[:, :3]
