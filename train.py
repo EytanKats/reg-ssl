@@ -12,7 +12,8 @@ from torch.utils.data import WeightedRandomSampler
 
 from ema import EMA
 from info_nce import InfoNCE
-from data_utils import prepare_data, augment_affine_nl, resize_with_grid_sample_3d
+from adam_instance_opt import AdamReg
+from data_utils import prepare_data, augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
 
@@ -132,6 +133,8 @@ def train(args):
         affine2 = torch.zeros(2,  H, W, D, 3).cuda()
         affine1_aug = torch.zeros(2, H, W, D, 3).cuda()
         affine2_aug = torch.zeros(2, H, W, D, 3).cuda()
+        affine_ema = torch.zeros(2, H, W, D, 3).cuda()
+        affine_ema_reverse = torch.zeros(2, H // 2, W // 2, D // 2, 3).cuda()
 
         t0 = time.time()
         with tqdm(total=half_iterations, file=sys.stdout, colour="red") as pbar:
@@ -178,15 +181,20 @@ def train(args):
                                 target[j:j + 1] = disp_field_aff
 
                     # to keep the displacement field unchanged apply same augmentation for fixed and moving image
-                    if use_ema:
-                        with torch.no_grad():
-                            for j in range(len(idx)):
-                                min_val_0 = torch.min(img0[j:j + 1])
-                                min_val_1 = torch.min(img1[j:j + 1])
-
-                                _, affine1[j:j + 1], _ = augment_affine_nl(target[j:j + 1])
-                                img0_ema[j:j + 1] = F.grid_sample(img0[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
-                                img1_ema[j:j + 1] = F.grid_sample(img1[j:j + 1] - min_val_1, affine1[j:j + 1]) + min_val_1
+                    # if use_ema:
+                    #     with torch.no_grad():
+                    #         for j in range(len(idx)):
+                    #             min_val_0 = torch.min(img0[j:j + 1])
+                    #             min_val_1 = torch.min(img1[j:j + 1])
+                    #
+                    #             R, R_inverse = get_rand_affine(1, flip=False)
+                    #             R, R_inverse = R.to('cuda'), R_inverse.to('cuda')
+                    #
+                    #             affine_ema[j:j + 1] = F.affine_grid(R, (1, 1, H, W, D))
+                    #             affine_ema_reverse[j:j + 1] = F.affine_grid(R_inverse, (1, 1, H//2, W//2, D//2))
+                    #
+                    #             img0_ema[j:j + 1] = F.grid_sample(img0[j:j + 1] - min_val_0, affine_ema[j:j + 1]) + min_val_0
+                    #             img1_ema[j:j + 1] = F.grid_sample(img1[j:j + 1] - min_val_1, affine_ema[j:j + 1]) + min_val_1
 
                     # visualize input data
                     if visualize:
@@ -226,6 +234,16 @@ def train(args):
                         ema.apply_shadow()
 
                         # apply teacher model
+                        # with torch.no_grad():
+                        #
+                        #     ema_features_fix = feature_net(img0_ema)
+                        #     ema_features_mov = feature_net(img1_ema)
+
+                        #     # calculate pseudo-target
+                        #     target_ema = coupled_convex(ema_features_fix, ema_features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                        #     target = F.grid_sample(target_ema, affine_ema_reverse)
+
+
                         with torch.no_grad():
                             ema_features_fix = feature_net(img0_ema)
                             ema_features_mov = feature_net(img1_ema)
