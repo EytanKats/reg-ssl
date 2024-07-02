@@ -128,6 +128,8 @@ def train(args):
         img1_aug = torch.zeros(2, 1, H, W, D).cuda()
         img0_ema = torch.zeros(2, 1, H, W, D).cuda()
         img1_ema = torch.zeros(2, 1, H, W, D).cuda()
+        img0_cli = torch.zeros(2, 1, H, W, D).cuda()
+        img1_cli = torch.zeros(2, 1, H, W, D).cuda()
         target = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
         affine1 = torch.zeros(2,  H, W, D, 3).cuda()
         affine2 = torch.zeros(2,  H, W, D, 3).cuda()
@@ -245,11 +247,21 @@ def train(args):
 
 
                         with torch.no_grad():
-                            ema_features_fix = feature_net(img0_ema)
-                            ema_features_mov = feature_net(img1_ema)
 
-                            # calculate pseudo-target
-                            target = coupled_convex(ema_features_fix, ema_features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                            # random projection network
+                            proj = nn.Conv3d(64, 32, 1, bias=False)
+                            proj.cuda()
+
+                            # feature extraction with g and projection to 32 channels
+                            feat_fix = proj(feature_net[:6](img0))
+                            feat_mov = proj(feature_net[:6](img1))
+
+                            disp_to_finetune = coupled_convex(features_fix, features_mov, use_ice=True, img_shape=(H, W, D))
+
+                            # finetuning of displacement field with Adam
+                            for j in range(len(idx)):
+                                flow = AdamReg(5 * feat_fix[j:j+1], 5 * feat_mov[j:j+1], disp_to_finetune[j:j+1], reg_fac=reg_fac)
+                                target[j:j+1] = F.interpolate(flow, scale_factor=.5, mode='trilinear')
 
                         ema.restore()
 
