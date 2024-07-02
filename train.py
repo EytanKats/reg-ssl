@@ -252,16 +252,37 @@ def train(args):
                         disp_pred_interpolated = F.interpolate(target, size=(h, w, d), mode='trilinear')
                         features_moved_cl = F.grid_sample(features_mov_cl, grid0 + disp_pred_interpolated.permute(0, 2, 3, 4, 1), mode='bilinear', align_corners=True)
 
+                        # calculate uncertainty in displacement prediction
+                        # disp_list = []
+                        # for step in range(10):
+                        #     with torch.no_grad():
+                        #         for j in range(len(idx)):
+                        #             min_val_0 = torch.min(img0[j:j + 1])
+                        #             min_val_1 = torch.min(img1[j:j + 1])
+                        #
+                        #             _, affine1[j:j + 1], _ = augment_affine_nl(target[j:j + 1])
+                        #             img0_cli[j:j + 1] = F.grid_sample(img0[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
+                        #             img1_cli[j:j + 1] = F.grid_sample(img1[j:j + 1] - min_val_1, affine1[j:j + 1]) + min_val_1
+                        #
+                        #         # differentiable optimization with optimizer h (coupled convex)
+                        #         disp_list.append(coupled_convex(feature_net(img0_cli), feature_net(img1_cli), use_ice=False, img_shape=(H // 4, W // 4, D // 4)))
+                        #
+                        # disp_std = torch.sum(torch.std(torch.stack(disp_list, dim=0), dim=0), dim=1)
+
                         featvecs_fix_list = []
                         featvecs_moved_list = []
                         for j in range(len(idx)):
 
                             # Get locations to sample from feature masks
                             ids = torch.argwhere(torch.zeros(h, w, d) > -1)
+                            # ids = torch.argwhere(disp_std[j] < disp_std[j].quantile(0.25))
+                            # ids = torch.round((-disp_pred_interpolated[j, :, ids[:, 0], ids[:, 1], ids[:, 2]].permute(1, 0) + 1) / 2 * torch.tensor([h, w, d]).cuda()).int() + ids
+                            # ids = torch.unique(ids, dim=0)
                             ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
 
                             # Sample feature vectors
-                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
+                            num_samples = ids.shape[0] if ids.shape[0] < 1000 else 1000
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_samples)]
                             featvecs_fix_list.append(features_fix_cl[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
                             featvecs_moved_list.append(features_moved_cl[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
