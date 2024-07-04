@@ -140,7 +140,4 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
             else:
                 all_fields[idx] = F.interpolate(disp, scale_factor=.5, mode='trilinear').cpu()
 
-    if compute_jacobian:
-        print(np.mean(sdlogj_net), np.mean(sdlog_adam))
-
     return all_fields, d_all_net, d_all0, d_all_adam, d_all_ident, np.mean(sdlogj_net), np.mean(sdlog_adam)

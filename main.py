@@ -10,18 +10,18 @@ if __name__ == "__main__":
     # train or test
     parser.add_argument(
         "--phase",
-        default="test",
+        default="train",
         type=str,
     )
     parser.add_argument(
         "--ckpt_path",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/clw1_s32/stage16.pth",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/cl1_clamp1_s16_rf10_ref1/stage8.pth",
         help="chekpoint to load",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/original",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_refactoring",
         help="directory to write results to",
         type=str,
     )
@@ -46,13 +46,13 @@ if __name__ == "__main__":
     # regularization weight in Adam optimization during training
     parser.add_argument(
         "--reg_fac",
-        default=10.,
+        default=1.,
         type=float,
     )
     # whether to perform difficulty-weighted data sampling during training
     parser.add_argument(
         "--sampling",
-        default="true",
+        default="false",
         type=str,
     )
     # whether to finetune pseudo labels with Adam instance optimization during training
@@ -82,13 +82,13 @@ if __name__ == "__main__":
     # whether to apply contrastive loss during training
     parser.add_argument(
         "--contrastive",
-        default="true",
+        default="false",
         type=str,
     )
     # whether to apply inter-image contrastive loss during training
     parser.add_argument(
         "--inter_image_contrastive",
-        default="true",
+        default="false",
         type=str,
     )
     # temperature factor for infoNCE loss
