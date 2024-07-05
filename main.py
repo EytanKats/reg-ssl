@@ -21,7 +21,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_refactoring",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_things_2",
         help="directory to write results to",
         type=str,
     )
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     # whether to perform difficulty-weighted data sampling during training
     parser.add_argument(
         "--sampling",
-        default="false",
+        default="true",
         type=str,
     )
     # whether to finetune pseudo labels with Adam instance optimization during training
