@@ -129,6 +129,7 @@ def train(args):
         img0_cli = torch.zeros(2, 1, H, W, D).cuda()
         img1_cli = torch.zeros(2, 1, H, W, D).cuda()
         target = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
+        target_aug = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
         affine1 = torch.zeros(2,  H, W, D, 3).cuda()
         affine2 = torch.zeros(2,  H, W, D, 3).cuda()
         affine1_aug = torch.zeros(2, H, W, D, 3).cuda()
@@ -293,7 +294,7 @@ def train(args):
                                 disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field)
                                 img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
                                 img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
-                                target[j:j + 1] = disp_field_aff
+                                target_aug[j:j + 1] = disp_field_aff
                     else:
                         with torch.no_grad():
                             for j in range(len(idx)):
@@ -301,7 +302,7 @@ def train(args):
                                 disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0.)
                                 img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
                                 img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
-                                target[j:j + 1] = disp_field_aff
+                                target_aug[j:j + 1] = disp_field_aff
 
                     # feature extraction with feature net g
                     features_fix = feature_net(img0)
@@ -311,7 +312,7 @@ def train(args):
                     disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
 
                     # consistency loss between prediction and pseudo label
-                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target[:, :, 8:-8, 8:-8, 8:-8])
+                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8])
                            * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                     loss = tre.mean()
 
@@ -371,7 +372,7 @@ def train(args):
                                 min_val_0 = torch.min(img0_[j:j + 1])
                                 min_val_1 = torch.min(img1_[j:j + 1])
 
-                                disp_field = all_fields[idx[j]:idx[j] + 1].cuda()
+                                disp_field = target[j:j + 1]
                                 _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field)
                                 img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
                                 img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
