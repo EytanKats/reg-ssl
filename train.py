@@ -73,24 +73,23 @@ def train(args):
             data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac
         )
 
-        # w/ Adam finetuning
-        all_fields, _, _, d_all_adam, _, _, _ = update_fields(
-            data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac
-        )
+        # w Adam finetuning
+        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True)
 
-        # compute difference between finetuned and non-finetuned fields for difficulty sampling
-        # the larger the difference, the more difficult the sample
-        with (torch.no_grad()):
+        # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
+        with torch.no_grad():
             with torch.cuda.amp.autocast():
                 tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
                             * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
-        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
 
-    else:
-        # w/o Adam finetuning
-        all_fields, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
-        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean())
+        print(f'val: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
+
+        # Log metrics to wandb
+        wandb.log({"val_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=0)
+        wandb.log({"val_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=0)
+        wandb.log({"val_sdlogj_wo_adam": sdlogj}, step=0)
+        wandb.log({"val_sdlogj_with_adam": sdlogj_adam}, step=0)
 
     # reinitialize feature net with novel random weights
     feature_net = nn.Sequential(nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
@@ -475,44 +474,48 @@ def train(args):
                     print()
 
                     #  recompute pseudo-labels with current model weights
-                    if use_adam:
-                        # w/o Adam finetuning
-                        all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
-                        # w Adam finetuning
-                        all_fields, _, _, d_all_adam, _, _, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                    # w/o Adam finetuning
+                    all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                    # w Adam finetuning
+                    all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True)
 
-                        # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
-                        with torch.no_grad():
-                            with torch.cuda.amp.autocast():
-                                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8,8:-8,8:-8].cuda())
-                                            * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-                                tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
+                    # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
+                    with torch.no_grad():
+                        with torch.cuda.amp.autocast():
+                            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8,8:-8,8:-8].cuda())
+                                        * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                            tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
-                        print('fields updated val error :', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
-
-                    else:
-                        # w/o Adam finetuning
-                        all_fields, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
-                        # w Adam finetuning
-                        _, _, _, d_all_adam, _, _, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
-
-                        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
+                    print(f'val: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
 
                     # Log metrics to wandb
-                    # wandb.log({"val_dice_wo_adam_finetuing": d_all_net[:3].mean()}, step=i)
-                    # wandb.log({"val_dice_with_adam_finetuing": d_all_adam[:3].mean()}, step=i)
+                    wandb.log({"val_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=i)
+                    wandb.log({"val_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=i)
+                    wandb.log({"val_sdlogj_wo_adam": sdlogj}, step=i)
+                    wandb.log({"val_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                 if i == 0 or i % 100 == 99:
 
-                    _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, sdlogj, sdlogj_adam = update_fields(
+                    if i == 0 or i % 1000 == 999:
+                        log_to_wandb = True
+                    else:
+                        log_to_wandb = False
+
+                    _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                         data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                        log_to_wandb=True, iteration=i, compute_jacobian=True
+                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True
                     )
-                    print(f'{d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                    print(f'test: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                     wandb.log({"test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
                     wandb.log({"test_dice_with_adam_finetuing": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"test_sdlogj_wo_adam": sdlogj}, step=i)
-                    wandb.log({"test_sdlogj_with_adam": sdlogj_adam}, step=i)
+                    wandb.log({"test_sdlogj_wo_adam": test_sdlogj}, step=i)
+                    wandb.log({"test_sdlogj_with_adam": test_sdlogj_adam}, step=i)
+
+                    if i == 0 or i % 1000 == 999:
+                        wandb.log({"sparse_test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                        wandb.log({"sparse_test_dice_with_adam_finetuing": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                        wandb.log({"sparse_test_sdlogj_wo_adam": test_sdlogj}, step=i)
+                        wandb.log({"sparse_test_sdlogj_with_adam": test_sdlogj_adam}, step=i)
 
                 feature_net.train()
 
