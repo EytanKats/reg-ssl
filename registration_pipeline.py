@@ -115,7 +115,8 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                 if log_to_wandb and idx % 5 == 0:
 
                     # warp moving image and visualize central slice of warped and fixed image
-                    warped_img_adam = F.grid_sample(img1_orig, grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest')
+                    min_1 = torch.min(img1_orig)
+                    warped_img_adam = F.grid_sample(img1_orig - min_1, grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest') + min_1
                     warped_img_adam = torch.clamp(warped_img_adam, -.4, .6)
 
                     fixed = img0.data.cpu().numpy()[0, 0, ...].copy()
