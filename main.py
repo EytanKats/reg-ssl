@@ -21,7 +21,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_things_2",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_reproduce",
         help="directory to write results to",
         type=str,
     )
@@ -82,13 +82,7 @@ if __name__ == "__main__":
     # whether to apply contrastive loss during training
     parser.add_argument(
         "--contrastive",
-        default="false",
-        type=str,
-    )
-    # whether to apply inter-image contrastive loss during training
-    parser.add_argument(
-        "--inter_image_contrastive",
-        default="false",
+        default="true",
         type=str,
     )
     # temperature factor for infoNCE loss
