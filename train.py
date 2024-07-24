@@ -95,17 +95,19 @@ def train(args):
                            nn.Conv3d(128, 16, 1)).cuda()
 
     # initialize EMA
-    ema = EMA(feature_net, 0.996)
+    ema = EMA(feature_net, 0.999)
 
     # Instantiate InfoNCE loss
     info_loss = InfoNCE(temperature=info_nce_temperature)
 
     optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
     eta_min = 0.00001
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 8000 * 2, eta_min=eta_min)
-    run_lr = torch.zeros(8000 * 2)
+
+    if use_ema:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 8000 * 2, eta_min=eta_min)
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 500 * 2, 1, eta_min=eta_min)
     half_iterations = 8000 * 2
-    run_loss = torch.zeros(half_iterations)
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(2, 1, H, W, D).cuda()
@@ -167,7 +169,7 @@ def train(args):
                     plt.show()
                     plt.close()
 
-            # feature extraction with teacher model
+            # pseudo-label generation
             if use_ema:
 
                 ema.apply_shadow()
@@ -188,9 +190,11 @@ def train(args):
                     flow = torch.zeros(2, 3, H, W, D).cuda()
                     for j in range(len(idx)):
                         flow[j:j + 1] = AdamReg(5 * feat_fix[j:j + 1], 5 * feat_mov[j:j + 1], disp_to_finetune[j:j + 1], reg_fac=reg_fac)
-                        target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')  # all_fields[idx[j]:idx[j] + 1].cuda()
+                        target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')
 
                 ema.restore()
+            else:
+                target[j:j + 1] = all_fields[idx[j]:idx[j] + 1].cuda()
 
             if do_augment:
                 with torch.no_grad():
@@ -226,6 +230,7 @@ def train(args):
             tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8])
                    * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
             loss = tre.mean()
+            wandb.log({"tre_loss": loss.detach().cpu().numpy()}, step=i)
 
             # apply contrastive loss
             if apply_contrastive_loss:
@@ -263,8 +268,14 @@ def train(args):
                     features_fix_aug = feature_net[:-4](img0_aug)
                     features_mov_aug = feature_net[:-4](img1_aug)
 
+                # if use_ema:
+                #     ema.apply_shadow()
+
                 features_fix = feature_net[:-4](img0_)
                 features_mov = feature_net[:-4](img1_)
+
+                # if use_ema:
+                #     ema.restore()
 
                 features_fix_warped = torch.zeros((2, 128, 48, 40, 64)).cuda()
                 features_mov_warped = torch.zeros((2, 128, 48, 40, 64)).cuda()
@@ -317,30 +328,46 @@ def train(args):
                         plt.close()
 
                 cl_coeff = 1.
-                loss += cl_coeff * info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
+                cl_loss = cl_coeff * info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
+                wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+                loss = cl_loss + loss
 
             loss.backward()
             optimizer.step()
             scheduler.step()
-            lr1 = float(scheduler.get_last_lr()[0])
-            run_lr[i] = lr1
+
+            lr = float(scheduler.get_last_lr()[0])
+            wandb.log({"learning_rate": lr}, step=i)
 
             if use_ema:
                 ema.update()
 
             if i % 1000 == 999:
+
                 # end of stage
                 stage += 1
-                torch.save(feature_net.cpu(), os.path.join(out_dir, 'stage' + str(stage) + '.pth'))
+
+                if use_ema:
+                    ema.apply_shadow()
+                    torch.save(feature_net.cpu(), os.path.join(out_dir, 'teacher_stage' + str(stage) + '.pth'))
+                    feature_net.cuda()
+                    ema.restore()
+
+                torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
                 feature_net.cuda()
-                torch.save(run_loss, os.path.join(out_dir, 'run_loss.pth'))
                 print()
 
                 #  recompute pseudo-labels with current model weights
+                if use_ema:
+                    ema.apply_shadow()
+
                 # w/o Adam finetuning
                 all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
                 # w Adam finetuning
                 all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True)
+
+                if use_ema:
+                    ema.restore()
 
                 # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
                 with torch.no_grad():
@@ -348,7 +375,8 @@ def train(args):
                                 * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                     tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
-                print(f'val: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
+                print(f'VAL_DICE_TEACHER: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
+                print(f'VAL_SDLOGJ_TEACHER: {sdlogj} -> {sdlogj_adam}')
 
                 # Log metrics to wandb
                 wandb.log({"val_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=i)
@@ -363,26 +391,49 @@ def train(args):
                 else:
                     log_to_wandb = False
 
+                if use_ema:
+
+                    ema.apply_shadow()
+
+                    _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
+                        data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True
+                    )
+                    print(f'TEST_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                    print(f'TEST_SDLOGJ_TEACHER: {test_sdlogj} -> {test_sdlogj_adam}')
+                    wandb.log({"test_dice_wo_adam_finetuing_teacher": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"test_dice_with_adam_finetuing_teacher": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"test_sdlogj_wo_adam_teacher": test_sdlogj}, step=i)
+                    wandb.log({"test_sdlogj_with_adam_teacher": test_sdlogj_adam}, step=i)
+
+                    if i == 0 or i % 1000 == 999:
+                        wandb.log({"sparse_test_dice_wo_adam_finetuing_teacher": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                        wandb.log({"sparse_test_dice_with_adam_finetuing_teacher": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                        wandb.log({"sparse_test_sdlogj_wo_adam_teacher": test_sdlogj}, step=i)
+                        wandb.log({"sparse_test_sdlogj_with_adam_teacher": test_sdlogj_adam}, step=i)
+
+                    ema.restore()
+                    log_to_wandb = False
+
                 _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                     data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
                     log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True
                 )
-                print(f'test: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
-                wandb.log({"test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                wandb.log({"test_dice_with_adam_finetuing": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                wandb.log({"test_sdlogj_wo_adam": test_sdlogj}, step=i)
-                wandb.log({"test_sdlogj_with_adam": test_sdlogj_adam}, step=i)
+                print(f'TEST_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                print(f'TEST_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')
+                wandb.log({"test_dice_wo_adam_finetuing_student": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                wandb.log({"test_dice_with_adam_finetuing_student": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                wandb.log({"test_sdlogj_wo_adam_student": test_sdlogj}, step=i)
+                wandb.log({"test_sdlogj_with_adam_student": test_sdlogj_adam}, step=i)
 
                 if i == 0 or i % 1000 == 999:
-                    wandb.log({"sparse_test_dice_wo_adam_finetuing": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"sparse_test_dice_with_adam_finetuing": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"sparse_test_sdlogj_wo_adam": test_sdlogj}, step=i)
-                    wandb.log({"sparse_test_sdlogj_with_adam": test_sdlogj_adam}, step=i)
+                    wandb.log({"sparse_test_dice_wo_adam_finetuing_student": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"sparse_test_dice_with_adam_finetuing_student": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"sparse_test_sdlogj_wo_adam_student": test_sdlogj}, step=i)
+                    wandb.log({"sparse_test_sdlogj_with_adam_student": test_sdlogj_adam}, step=i)
 
             feature_net.train()
 
-            run_loss[i] = loss.item()
-
-            str1 = f"iter: {i}, loss: {'%0.3f' % (run_loss[i - 34:i - 1].mean())}, runtime: {'%0.3f' % (time.time() - t0)} sec, GPU max/memory: {'%0.2f' % (torch.cuda.max_memory_allocated() * 1e-9)} GByte"
-            pbar.set_description(str1)
+            pbar_desciprtion = f"iter: {i}, runtime: {'%0.3f' % (time.time() - t0)} sec, GPU max/memory: {'%0.2f' % (torch.cuda.max_memory_allocated() * 1e-9)} GByte"
+            pbar.set_description(pbar_desciprtion)
             pbar.update(1)
