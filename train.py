@@ -194,7 +194,8 @@ def train(args):
 
                 ema.restore()
             else:
-                target[j:j + 1] = all_fields[idx[j]:idx[j] + 1].cuda()
+                for j in range(len(idx)):
+                    target[j:j + 1] = all_fields[idx[j]:idx[j] + 1].cuda()
 
             if do_augment:
                 with torch.no_grad():
