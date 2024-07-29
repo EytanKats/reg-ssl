@@ -33,6 +33,7 @@ def train(args):
         os.makedirs(out_dir)
 
     # Parse arguments
+    iterations = args.num_iterations
     num_warps = args.num_warps
     reg_fac = args.reg_fac
     use_ice = True if args.ice == 'true' else False
@@ -104,10 +105,9 @@ def train(args):
     eta_min = 0.00001
 
     if use_ema:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 8000 * 2, eta_min=eta_min)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
     else:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 500 * 2, 1, eta_min=eta_min)
-    half_iterations = 8000 * 2
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(2, 1, H, W, D).cuda()
@@ -123,8 +123,8 @@ def train(args):
 
     stage = 0
     t0 = time.time()
-    with tqdm(total=half_iterations, file=sys.stdout, colour="red") as pbar:
-        for i in range(half_iterations):
+    with tqdm(total=iterations, file=sys.stdout, colour="red") as pbar:
+        for i in range(iterations):
             optimizer.zero_grad()
 
             # difficulty weighting
