@@ -33,6 +33,11 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
+        "--num_iterations",
+        default=10000,
+        type=int,
+    )
+    parser.add_argument(
         "--num_warps",
         default=2,
         type=int,
