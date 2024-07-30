@@ -10,12 +10,18 @@ if __name__ == "__main__":
     # train or test
     parser.add_argument(
         "--phase",
-        default="test",
+        default="train",
+        type=str,
+    )
+    parser.add_argument(
+        "--ckpt_path",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/cl1_clamp1_s16_rf10_ref1/stage8.pth",
+        help="chekpoint to load",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/original",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_reproduce",
         help="directory to write results to",
         type=str,
     )
@@ -25,6 +31,11 @@ if __name__ == "__main__":
         metavar="FILE",
         help="gpu to train on",
         type=str,
+    )
+    parser.add_argument(
+        "--num_iterations",
+        default=10000,
+        type=int,
     )
     parser.add_argument(
         "--num_warps",
@@ -61,13 +72,44 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to clamp the image according to CT abdomen window
+    parser.add_argument(
+        "--apply_ct_abdomen_window",
+        default="true",
+        type=str,
+    )
+    # whether to use teacher-student approach during the training
+    parser.add_argument(
+        "--ema",
+        default="true",
+        type=str,
+    )
+    # whether to apply contrastive loss during training
+    parser.add_argument(
+        "--contrastive",
+        default="true",
+        type=str,
+    )
+    # temperature factor for infoNCE loss
+    parser.add_argument(
+        "--info_nce_temperature",
+        default=0.1,
+        type=float,
+    )
+    # visualize with matplotlib
+    parser.add_argument(
+        "--visualize",
+        default="false",
+        type=str,
+    )
     args = parser.parse_args()
+
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     import torch
 
     if args.phase == 'test':
-        test()
+        test(args)
 
     else:
         train(args)
