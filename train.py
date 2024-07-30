@@ -103,11 +103,7 @@ def train(args):
 
     optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
     eta_min = 0.00001
-
-    if use_ema:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
-    else:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 500 * 2, 1, eta_min=eta_min)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(2, 1, H, W, D).cuda()
