@@ -78,12 +78,6 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    # whether to clamp the image according to CT abdomen window
-    parser.add_argument(
-        "--apply_ct_abdomen_window",
-        default="true",
-        type=str,
-    )
     # whether to use teacher-student approach during the training
     parser.add_argument(
         "--ema",

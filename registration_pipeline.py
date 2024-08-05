@@ -12,7 +12,7 @@ from eval_utils import dice_coeff, jacobian_determinant
 from adam_instance_opt import AdamReg
 
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time
-def update_fields(data, feature_net, use_adam, num_labels, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
+def update_fields(data, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
     all_img = data['images']
     all_seg = data['segmentations']
     pairs = data['pairs']
@@ -35,8 +35,12 @@ def update_fields(data, feature_net, use_adam, num_labels, num_warps=1, compute_
         with torch.cuda.amp.autocast():
             with torch.no_grad():
                 # select image pair and segmentations
-                img0 = torch.clamp(all_img[pairs[idx, 0]].cuda().unsqueeze(0), -.4, .6)  # .repeat(1,2,1,1,1)
-                img1 = torch.clamp(all_img[pairs[idx, 1]].cuda().unsqueeze(0), -.4, .6)  # .repeat(1,2,1,1,1)
+                if clamp:
+                    img0 = torch.clamp(all_img[pairs[idx, 0]].cuda().unsqueeze(0), -.4, .6)  # .repeat(1,2,1,1,1)
+                    img1 = torch.clamp(all_img[pairs[idx, 1]].cuda().unsqueeze(0), -.4, .6)  # .repeat(1,2,1,1,1)
+                else:
+                    img0 = all_img[pairs[idx, 0]].cuda().unsqueeze(0)
+                    img1 = all_img[pairs[idx, 1]].cuda().unsqueeze(0)
                 img1_orig = img1.clone()
                 fixed_seg = all_seg[pairs[idx, 0]].cuda()
                 moving_seg = all_seg[pairs[idx, 1]].cuda()
@@ -65,7 +69,10 @@ def update_fields(data, feature_net, use_adam, num_labels, num_warps=1, compute_
                 for _ in range(num_warps - 1):
                     # warp moving image with first disp field to generate input for 2nd warp
                     warped_img = F.grid_sample(img1, grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest')
-                    img1 = torch.clamp(warped_img, -.4, .6)
+                    if clamp:
+                        img1 = torch.clamp(warped_img, -.4, .6)
+                    else:
+                        img1 = warped_img
                     moving_seg = warped_seg[0]
 
                     # feature extraction with feature net g
@@ -117,7 +124,8 @@ def update_fields(data, feature_net, use_adam, num_labels, num_warps=1, compute_
                     # warp moving image and visualize central slice of warped and fixed image
                     min_1 = torch.min(img1_orig)
                     warped_img_adam = F.grid_sample(img1_orig - min_1, grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest') + min_1
-                    warped_img_adam = torch.clamp(warped_img_adam, -.4, .6)
+                    if clamp:
+                        warped_img_adam = torch.clamp(warped_img_adam, -.4, .6)
 
                     fixed = img0.data.cpu().numpy()[0, 0, ...].copy()
                     moving = img1_orig.data.cpu().numpy()[0, 0, ...].copy()
