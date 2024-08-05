@@ -1,10 +1,12 @@
+import os
 import scipy.linalg
 import nibabel as nib
+
 import torch
 import torch.nn.functional as F
 
 
-def prepare_data(data_split):
+def prepare_abdomenctct_data(data_split):
     path = '/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
 
     # idx of train and val samples
@@ -35,6 +37,42 @@ def prepare_data(data_split):
     data = {'images': all_img,
             'segmentations': all_seg,
             'pairs': pairs}
+
+    return data
+
+
+def prepare_radchest_data(data_split):
+
+    RAD_CHEST_CT = '/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct'
+    PAIRS = 'list_of_pairs.pth'
+    IMAGES = 'imgs'
+    LABELS = 'lbls_ts'
+
+    pairs = torch.load(os.path.join(RAD_CHEST_CT, PAIRS))
+
+    # idx of train and val samples
+    if data_split == 'train':
+        pairs = pairs[:50]
+    else:
+        pairs = pairs[50:70]
+
+    # load images and segmentation masks
+    pairs_idx = torch.empty(0, 2).long()
+    all_img = torch.zeros(len(pairs * 2), 1, 256, 256, 224).cuda()
+    all_seg = torch.zeros(len(pairs * 2), 256, 256, 224).long().cuda()
+    for pair_idx, pair in enumerate(pairs):
+
+        all_img[pair_idx * 2, 0] = torch.from_numpy(nib.load(os.path.join(RAD_CHEST_CT, IMAGES, f'{pair[0]}.nii.gz')).get_fdata()).cuda().float() / 500
+        all_seg[pair_idx * 2] = torch.from_numpy(nib.load(os.path.join(RAD_CHEST_CT, LABELS, f'{pair[0]}.nii.gz')).get_fdata()).cuda().long()
+
+        all_img[pair_idx * 2 + 1, 0] = torch.from_numpy(nib.load(os.path.join(RAD_CHEST_CT, IMAGES, f'{pair[1]}.nii.gz')).get_fdata()).cuda().float() / 500
+        all_seg[pair_idx * 2 + 1] = torch.from_numpy(nib.load(os.path.join(RAD_CHEST_CT, LABELS, f'{pair[1]}.nii.gz')).get_fdata()).cuda().long()
+
+        pairs_idx = torch.cat((pairs_idx, torch.tensor([pair_idx * 2, pair_idx * 2 + 1]).long().view(1, 2)), 0)
+
+    data = {'images': all_img,
+            'segmentations': all_seg,
+            'pairs': pairs_idx}
 
     return data
 

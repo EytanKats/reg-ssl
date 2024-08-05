@@ -12,16 +12,16 @@ from eval_utils import dice_coeff, jacobian_determinant
 from adam_instance_opt import AdamReg
 
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time
-def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
+def update_fields(data, feature_net, use_adam, num_labels, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
     all_img = data['images']
     all_seg = data['segmentations']
     pairs = data['pairs']
 
     # placeholders for dice scores and SDlogJ
-    d_all0 = torch.empty(0, 13)
-    d_all_ident = torch.empty(0, 13)
-    d_all_net = torch.empty(0, 13)
-    d_all_adam = torch.empty(0, 13)
+    d_all0 = torch.empty(0, num_labels - 1)
+    d_all_ident = torch.empty(0, num_labels - 1)
+    d_all_net = torch.empty(0, num_labels - 1)
+    d_all_adam = torch.empty(0, num_labels - 1)
     sdlogj_net = []
     sdlog_adam = []
 
@@ -58,9 +58,9 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                 disp_0 = disp.clone()
 
                 # compute DSC
-                dsc_0 = dice_coeff(fixed_seg.contiguous(), moving_seg.contiguous(), 14).cpu()
-                dsc_1 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
-                dsc_ident = dice_coeff(fixed_seg.contiguous(), fixed_seg.contiguous(), 14).cpu() * dice_coeff(moving_seg.contiguous(), moving_seg.contiguous(), 14).cpu()
+                dsc_0 = dice_coeff(fixed_seg.contiguous(), moving_seg.contiguous(), num_labels).cpu()
+                dsc_1 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), num_labels).cpu()
+                dsc_ident = dice_coeff(fixed_seg.contiguous(), fixed_seg.contiguous(), num_labels).cpu() * dice_coeff(moving_seg.contiguous(), moving_seg.contiguous(), num_labels).cpu()
 
                 for _ in range(num_warps - 1):
                     # warp moving image with first disp field to generate input for 2nd warp
@@ -79,7 +79,7 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
                     warped_seg = F.grid_sample(moving_seg.view(1, 1, H, W, D).float(), grid0 + disp.permute(0, 2, 3, 4, 1), mode='nearest').squeeze(1)
 
                     # compute DSC
-                    dsc_1 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
+                    dsc_1 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), num_labels).cpu()
 
                     disp_1 = disp.clone()
                     disp = disp_0 + F.grid_sample(disp_1, disp_0.permute(0,2,3,4,1) + grid0)
@@ -134,7 +134,7 @@ def update_fields(data, feature_net, use_adam, num_warps=1, compute_jacobian=Fal
 
                     plt.close(f)
 
-                dsc_2 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), 14).cpu()
+                dsc_2 = dice_coeff(fixed_seg.contiguous(), warped_seg.contiguous(), num_labels).cpu()
                 all_fields[idx] = F.interpolate(flow, scale_factor=.5, mode='trilinear').cpu()
                 d_all_adam = torch.cat((d_all_adam, dsc_2.view(1, -1)), 0)
 

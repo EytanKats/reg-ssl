@@ -13,7 +13,7 @@ from torch.utils.data import WeightedRandomSampler
 from ema import EMA
 from info_nce import InfoNCE
 from adam_instance_opt import AdamReg
-from data_utils import prepare_data, augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
+from data_utils import prepare_radchest_data, prepare_abdomenctct_data, augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
 
@@ -33,6 +33,7 @@ def train(args):
         os.makedirs(out_dir)
 
     # Parse arguments
+    dataset = args.dataset
     iterations = args.num_iterations
     num_warps = args.num_warps
     reg_fac = args.reg_fac
@@ -47,8 +48,15 @@ def train(args):
     visualize = True if args.visualize == 'true' else False
 
     # Loading data (segmentations only used for validation after each stage)
-    data = prepare_data(data_split='train')
-    data_test = prepare_data(data_split='test')
+    if dataset == 'abdomenctct':
+        data = prepare_abdomenctct_data(data_split='train')
+        data_test = prepare_abdomenctct_data(data_split='test')
+        num_labels = 14
+
+    elif dataset == 'radchestct':
+        data = prepare_radchest_data(data_split='train')
+        data_test = prepare_radchest_data(data_split='val')
+        num_labels = 22
 
     # initialize feature net
     feature_net = nn.Sequential(
@@ -67,11 +75,11 @@ def train(args):
 
         # w/o Adam finetuning
         all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(
-            data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac
+            data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, num_labels=num_labels
         )
 
         # w Adam finetuning
-        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True)
+        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels)
 
         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
         with torch.no_grad():
@@ -359,9 +367,9 @@ def train(args):
                     ema.apply_shadow()
 
                 # w/o Adam finetuning
-                all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac)
+                all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, num_labels=num_labels)
                 # w Adam finetuning
-                all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True)
+                all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels)
 
                 if use_ema:
                     ema.restore()
@@ -394,7 +402,7 @@ def train(args):
 
                     _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                         data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True
+                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels
                     )
                     print(f'TEST_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                     print(f'TEST_SDLOGJ_TEACHER: {test_sdlogj} -> {test_sdlogj_adam}')
@@ -414,7 +422,7 @@ def train(args):
 
                 _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                     data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                    log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True
+                    log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels
                 )
                 print(f'TEST_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                 print(f'TEST_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')

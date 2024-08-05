@@ -7,6 +7,12 @@ from test import test
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
+    # dataset: abdomenctct, radchestct
+    parser.add_argument(
+        "--dataset",
+        default="radchestct",
+        type=str,
+    )
     # train or test
     parser.add_argument(
         "--phase",
