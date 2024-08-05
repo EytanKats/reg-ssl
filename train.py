@@ -200,7 +200,7 @@ def train(args):
                         min_val_1 = torch.min(img1_[j:j + 1])
 
                         disp_field = target[j:j + 1]
-                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field)
+                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
                         img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
                         img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
                         target_aug[j:j + 1] = disp_field_aff
@@ -208,7 +208,7 @@ def train(args):
                 with torch.no_grad():
                     for j in range(len(idx)):
                         input_field = target[j:j + 1]
-                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0.)
+                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0., shape=(1, 1, H, W, D))
                         img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
                         img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
                         target_aug[j:j + 1] = disp_field_aff
@@ -238,7 +238,7 @@ def train(args):
                         min_val_1 = torch.min(img1_[j:j + 1])
 
                         disp_field = target[j:j + 1]
-                        _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field)
+                        _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
                         img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
                         img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
@@ -274,8 +274,8 @@ def train(args):
                 # if use_ema:
                 #     ema.restore()
 
-                features_fix_warped = torch.zeros((2, 128, 48, 40, 64)).cuda()
-                features_mov_warped = torch.zeros((2, 128, 48, 40, 64)).cuda()
+                features_fix_warped = torch.zeros((2, 128, H // 4, W // 4, D // 4)).cuda()
+                features_mov_warped = torch.zeros((2, 128, H // 4, W // 4, D // 4)).cuda()
 
                 h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
                 affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
