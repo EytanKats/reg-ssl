@@ -28,8 +28,8 @@ def create_json_data_file(
 
 
 ROOT_DIR = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
-IMAGE_DIR = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/imgs/'
-MASK_DIR = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/labels/'
+IMAGE_DIR = f'imgs'
+MASK_DIR = f'lbls_ts'
 PAIRS = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/list_of_pairs.pth'
 
 OUTPUT_FILE_PATH_TEMPLATE = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct'
