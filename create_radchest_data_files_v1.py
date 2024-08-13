@@ -56,6 +56,9 @@ for fold, (train_val_idx, test_idx) in enumerate(kf.split(pairs)):
     test_idx = test_idx.tolist()
     test_pairs = [pairs[i] for i in test_idx]
 
+    for i, train_pair in enumerate(train_pairs):
+        train_pair['idx'] = i
+
     output_file_path = OUTPUT_FILE_PATH_TEMPLATE + '_fold' + str(fold) + '.json'
     create_json_data_file(
         output_file_path,
