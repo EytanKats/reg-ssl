@@ -7,6 +7,12 @@ from test import test
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
+    # dataset: abdomenctct, radchestct
+    parser.add_argument(
+        "--dataset",
+        default="radchestct",
+        type=str,
+    )
     # train or test
     parser.add_argument(
         "--phase",
@@ -14,8 +20,14 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
-        "--ckpt_path",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/cl1_clamp1_s16_rf10_ref1/stage8.pth",
+        "--ckpt_path_1",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_baseline/student_stage10.pth",
+        help="chekpoint to load",
+        type=str,
+    )
+    parser.add_argument(
+        "--ckpt_path_2",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_cl/student_stage10.pth",
         help="chekpoint to load",
         type=str,
     )
@@ -72,12 +84,6 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    # whether to clamp the image according to CT abdomen window
-    parser.add_argument(
-        "--apply_ct_abdomen_window",
-        default="true",
-        type=str,
-    )
     # whether to use teacher-student approach during the training
     parser.add_argument(
         "--ema",
@@ -107,8 +113,10 @@ if __name__ == "__main__":
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     import torch
+    torch.multiprocessing.set_sharing_strategy('file_system')
 
     if args.phase == 'test':
+
         test(args)
 
     else:
