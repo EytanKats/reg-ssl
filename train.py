@@ -13,7 +13,8 @@ from torch.utils.data import WeightedRandomSampler
 from ema import EMA
 from info_nce import InfoNCE
 from adam_instance_opt import AdamReg
-from data_utils import prepare_radchest_data, prepare_abdomenctct_data, augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
+from data_utils import augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
+from dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
 
@@ -45,17 +46,61 @@ def train(args):
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
     visualize = True if args.visualize == 'true' else False
+    max_samples_num = 30
+    cache_data_to_gpu = True
+    training_batch_size = 2
+    num_sampled_featvecs = 1000
 
     # Loading data (segmentations only used for validation after each stage)
     if dataset == 'abdomenctct':
-        data = prepare_abdomenctct_data(data_split='train')
-        data_test = prepare_abdomenctct_data(data_split='test')
+        root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
+        data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
+
+        sampling_data_loader = get_data_loader(
+            root_dir=root_dir,
+            data_file=data_file,
+            key='training',
+            batch_size=1,
+            num_workers=4,
+            shuffle=False,
+            drop_last=False,
+            max_samples_num=max_samples_num
+        )
+        val_data_loader = get_data_loader(
+            root_dir=root_dir,
+            data_file=data_file,
+            key='test',
+            batch_size=1,
+            num_workers=4,
+            shuffle=False,
+            drop_last=False
+        )
         num_labels = 14
         apply_ct_abdomen_window = True
 
     elif dataset == 'radchestct':
-        data = prepare_radchest_data(data_split='train')
-        data_test = prepare_radchest_data(data_split='val')
+        root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
+        data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_fold0.json'
+
+        sampling_data_loader = get_data_loader(
+            root_dir=root_dir,
+            data_file=data_file,
+            key='training',
+            batch_size=1,
+            num_workers=4,
+            shuffle=False,
+            drop_last=False,
+            max_samples_num=max_samples_num
+        )
+        val_data_loader = get_data_loader(
+            root_dir=root_dir,
+            data_file=data_file,
+            key='test',
+            batch_size=1,
+            num_workers=4,
+            shuffle=False,
+            drop_last=False
+        )
         num_labels = 22
         apply_ct_abdomen_window = False
 
@@ -69,18 +114,35 @@ def train(args):
         nn.Conv3d(128, 16, 1)
     ).cuda()
 
-    N, _, H, W, D = data['images'].shape
+    _, H, W, D = val_data_loader.dataset[0]['image_1'].shape
 
     # generate initial pseudo labels with random features
-    if use_adam:
+    if do_sampling:
 
         # w/o Adam finetuning
         all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(
-            data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, num_labels=num_labels, clamp=apply_ct_abdomen_window
+            sampling_data_loader,
+            feature_net,
+            use_adam=False,
+            num_warps=num_warps,
+            ice=use_ice,
+            reg_fac=reg_fac,
+            num_labels=num_labels,
+            clamp=apply_ct_abdomen_window
         )
 
         # w Adam finetuning
-        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window)
+        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(
+            sampling_data_loader,
+            feature_net,
+            use_adam=True,
+            num_warps=num_warps,
+            ice=use_ice,
+            reg_fac=reg_fac,
+            compute_jacobian=True,
+            num_labels=num_labels,
+            clamp=apply_ct_abdomen_window
+        )
 
         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
         with torch.no_grad():
@@ -88,13 +150,14 @@ def train(args):
                         * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
             tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
-        print(f'val: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
+        print(f'TRAIN_DICE: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
+        print(f'TRAIN_SDLOGJ: {sdlogj} -> {sdlogj_adam}')
 
         # Log metrics to wandb
-        wandb.log({"val_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=0)
-        wandb.log({"val_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=0)
-        wandb.log({"val_sdlogj_wo_adam": sdlogj}, step=0)
-        wandb.log({"val_sdlogj_with_adam": sdlogj_adam}, step=0)
+        wandb.log({"train_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=0)
+        wandb.log({"train_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=0)
+        wandb.log({"train_sdlogj_wo_adam": sdlogj}, step=0)
+        wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=0)
 
     # reinitialize feature net with novel random weights
     feature_net = nn.Sequential(nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
@@ -115,331 +178,345 @@ def train(args):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
-    img0 = torch.zeros(2, 1, H, W, D).cuda()
-    img1 = torch.zeros(2, 1, H, W, D).cuda()
-    img0_aug = torch.zeros(2, 1, H, W, D).cuda()
-    img1_aug = torch.zeros(2, 1, H, W, D).cuda()
-    target = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
-    target_aug = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
-    affine1 = torch.zeros(2, H, W, D, 3).cuda()
-    affine2 = torch.zeros(2, H, W, D, 3).cuda()
-    affine1_aug = torch.zeros(2, H, W, D, 3).cuda()
-    affine2_aug = torch.zeros(2, H, W, D, 3).cuda()
+    img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+    img1 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+    img0_aug = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+    img1_aug = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+    target = torch.zeros(training_batch_size, 3, H // 2, W // 2, D // 2).cuda()
+    target_aug = torch.zeros(training_batch_size, 3, H // 2, W // 2, D // 2).cuda()
+    affine1 = torch.zeros(training_batch_size, H, W, D, 3).cuda()
+    affine2 = torch.zeros(training_batch_size, H, W, D, 3).cuda()
+    affine1_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
+    affine2_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
 
+    i = 0
     stage = 0
     t0 = time.time()
-    with tqdm(total=iterations, file=sys.stdout, colour="red") as pbar:
-        for i in range(iterations):
-            optimizer.zero_grad()
+    train_data_loader = None
+    with tqdm(total=iterations, file=sys.stdout, colour="red", ncols=200) as pbar:
+        while i < iterations:
+            if i == 0 or i % 1000 == 999:
 
-            # difficulty weighting
-            if use_adam and do_sampling:
-                q = torch.zeros(len(data['pairs']))
-                q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(data['pairs'])))
-            else:
-                q = torch.ones(len(data['pairs']))
-            idx = torch.tensor(list(WeightedRandomSampler(q, 2, replacement=True))).long()
+                # difficulty weighting
+                if use_adam and do_sampling:
+                    q = torch.zeros(len(sampling_data_loader))
+                    q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(sampling_data_loader)))
+                else:
+                    q = torch.ones(len(sampling_data_loader))
 
-            # image selection and augmentation
-            img0_ = data['images'][data['pairs'][idx, 0]].cuda()
-            img1_ = data['images'][data['pairs'][idx, 1]].cuda()
+                if cache_data_to_gpu:
+                    if train_data_loader is None:
+                        train_data_loader = get_data_loader(
+                            root_dir=root_dir,
+                            data_file=data_file,
+                            key='training',
+                            batch_size=training_batch_size,
+                            fast=True,
+                            max_samples_num=max_samples_num
+                        )
+                        train_data_loader.weights = q
+                    else:
+                        train_data_loader.weights = q
+                else:
+                    sampler = WeightedRandomSampler(q, training_batch_size, replacement=True)
+                    train_data_loader = get_data_loader(
+                        root_dir=root_dir,
+                        data_file=data_file,
+                        key='training',
+                        batch_size=training_batch_size,
+                        num_workers=8,
+                        sampler=sampler,
+                        max_samples_num=max_samples_num)
 
-            img0_.requires_grad_(True)
-            img1_.requires_grad_(True)
+            for data_pair in train_data_loader:
+                optimizer.zero_grad()
 
-            # apply abdomen CT window
-            if apply_ct_abdomen_window:
-                with torch.no_grad():
-                    for j in range(len(idx)):
-                        img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
-                        img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
+                img0_ = (data_pair['image_1'] / 500).cuda()
+                img1_ = (data_pair['image_2'] / 500).cuda()
+                indices = data_pair['idx'].numpy().tolist()
 
-            # visualize input data
-            if visualize:
-                for j in range(len(idx)):
-                    image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
-                    image_0 = img0.data.cpu().numpy()[j, 0, ...].copy()
+                img0_.requires_grad_(True)
+                img1_.requires_grad_(True)
 
-                    image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
-                    image_1 = img1.data.cpu().numpy()[j, 0, ...].copy()
+                # apply abdomen CT window
+                if apply_ct_abdomen_window:
+                    with torch.no_grad():
+                        for j in range(training_batch_size):
+                            img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
+                            img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
 
-                    center_slice = image_0.shape[2] // 2
-
-                    f, axarr = plt.subplots(2, 2)
-                    axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
-                    axarr[0, 1].imshow(image_0[:, :, center_slice], cmap='gray')
-                    axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
-                    axarr[1, 1].imshow(image_1[:, :, center_slice], cmap='gray')
-
-                    plt.show()
-                    plt.close()
-
-            # pseudo-label generation
-            if use_ema:
-
-                ema.apply_shadow()
-
-                with torch.no_grad():
-
-                    # random projection network
-                    proj = nn.Conv3d(64, 32, 1, bias=False)
-                    proj.cuda()
-
-                    # feature extraction with g and projection to 32 channels
-                    feat_fix = proj(feature_net[:6](img0_))
-                    feat_mov = proj(feature_net[:6](img1_))
-
-                    disp_to_finetune = coupled_convex(feature_net(img0_), feature_net(img1_), use_ice=True, img_shape=(H, W, D))
-
-                    # finetuning of displacement field with Adam
-                    flow = torch.zeros(2, 3, H, W, D).cuda()
-                    for j in range(len(idx)):
-                        flow[j:j + 1] = AdamReg(5 * feat_fix[j:j + 1], 5 * feat_mov[j:j + 1], disp_to_finetune[j:j + 1], reg_fac=reg_fac)
-                        target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')
-
-                ema.restore()
-            else:
-                for j in range(len(idx)):
-                    target[j:j + 1] = all_fields[idx[j]:idx[j] + 1].cuda()
-
-            if do_augment:
-                with torch.no_grad():
-                    for j in range(len(idx)):
-                        min_val_0 = torch.min(img0_[j:j + 1])
-                        min_val_1 = torch.min(img1_[j:j + 1])
-
-                        disp_field = target[j:j + 1]
-                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
-                        img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
-                        img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
-                        target_aug[j:j + 1] = disp_field_aff
-            else:
-                with torch.no_grad():
-                    for j in range(len(idx)):
-                        input_field = target[j:j + 1]
-                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0., shape=(1, 1, H, W, D))
-                        img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
-                        img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
-                        target_aug[j:j + 1] = disp_field_aff
-
-            img0.requires_grad_(True)
-            img1.requires_grad_(True)
-
-            # feature extraction with feature net g
-            features_fix = feature_net(img0)
-            features_mov = feature_net(img1)
-
-            # differentiable optimization with optimizer h (coupled convex)
-            disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
-
-            # consistency loss between prediction and pseudo label
-            tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8])
-                   * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-            loss = tre.mean()
-            wandb.log({"tre_loss": loss.detach().cpu().numpy()}, step=i)
-
-            # apply contrastive loss
-            if apply_contrastive_loss:
-
-                with torch.no_grad():
-                    for j in range(len(idx)):
-                        min_val_0 = torch.min(img0_[j:j + 1])
-                        min_val_1 = torch.min(img1_[j:j + 1])
-
-                        disp_field = target[j:j + 1]
-                        _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
-                        img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
-                        img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
-
-                    # visualize data for contrastive loss
-                    if visualize:
-                        for j in range(len(idx)):
-                            image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
-                            image_0_aug = img0_aug.data.cpu().numpy()[j, 0, ...].copy()
-
-                            image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
-                            image_1_aug = img1_aug.data.cpu().numpy()[j, 0, ...].copy()
-
-                            center_slice = image_0_.shape[2] // 2
-
-                            f, axarr = plt.subplots(2, 2)
-                            axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
-                            axarr[0, 1].imshow(image_0_aug[:, :, center_slice], cmap='gray')
-                            axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
-                            axarr[1, 1].imshow(image_1_aug[:, :, center_slice], cmap='gray')
-
-                            plt.show()
-                            plt.close()
-
-                    features_fix_aug = feature_net[:-4](img0_aug)
-                    features_mov_aug = feature_net[:-4](img1_aug)
-
-                # if use_ema:
-                #     ema.apply_shadow()
-
-                features_fix = feature_net[:-4](img0_)
-                features_mov = feature_net[:-4](img1_)
-
-                # if use_ema:
-                #     ema.restore()
-
-                features_fix_warped = torch.zeros((2, 128, H // 4, W // 4, D // 4)).cuda()
-                features_mov_warped = torch.zeros((2, 128, H // 4, W // 4, D // 4)).cuda()
-
-                h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
-                affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-
-                featvecs_aug_list = []
-                featvecs_warped_list = []
-                for j in range(len(idx)):
-                    features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
-                    features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
-
-                    # Get locations to sample from feature masks
-                    ids = torch.argwhere(torch.zeros(h, w, d) > -1)
-                    ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
-
-                    # Sample feature vectors
-                    ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
-                    featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-                    featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-
-                    ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
-                    featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-                    featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-
-                # visualize features
+                # visualize input data
                 if visualize:
-                    for j in range(len(idx)):
-                        f_fix = features_fix.data.cpu().numpy()[j, 64, ...].copy()
-                        f_fix_aug = features_fix_aug.data.cpu().numpy()[j, 64, ...].copy()
-                        f_fix_warped = features_fix_warped.data.cpu().numpy()[j, 64, ...].copy()
+                    for j in range(training_batch_size):
+                        image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
+                        image_0 = img0.data.cpu().numpy()[j, 0, ...].copy()
 
-                        f_mov = features_mov.data.cpu().numpy()[j, 64, ...].copy()
-                        f_mov_aug = features_mov_aug.data.cpu().numpy()[j, 64, ...].copy()
-                        f_mov_warped = features_mov_warped.data.cpu().numpy()[j, 64, ...].copy()
+                        image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
+                        image_1 = img1.data.cpu().numpy()[j, 0, ...].copy()
 
-                        center_slice = f_fix.shape[2] // 2
+                        center_slice = image_0.shape[2] // 2
 
-                        f, axarr = plt.subplots(2, 3)
-                        axarr[0, 0].imshow(f_fix[:, :, center_slice], cmap='gray')
-                        axarr[0, 1].imshow(f_fix_aug[:, :, center_slice], cmap='gray')
-                        axarr[0, 2].imshow(f_fix_warped[:, :, center_slice], cmap='gray')
-                        axarr[1, 0].imshow(f_mov[:, :, center_slice], cmap='gray')
-                        axarr[1, 1].imshow(f_mov_aug[:, :, center_slice], cmap='gray')
-                        axarr[1, 2].imshow(f_mov_warped[:, :, center_slice], cmap='gray')
+                        f, axarr = plt.subplots(2, 2)
+                        axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
+                        axarr[0, 1].imshow(image_0[:, :, center_slice], cmap='gray')
+                        axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
+                        axarr[1, 1].imshow(image_1[:, :, center_slice], cmap='gray')
 
                         plt.show()
                         plt.close()
 
-                cl_coeff = 1.
-                cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
-                wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
-                loss = cl_coeff * cl_loss + loss
-
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-
-            lr = float(scheduler.get_last_lr()[0])
-            wandb.log({"learning_rate": lr}, step=i)
-
-            if use_ema:
-                ema.update()
-
-            if i % 1000 == 999:
-
-                # end of stage
-                stage += 1
-
+                # pseudo-label generation
                 if use_ema:
-                    ema.apply_shadow()
-                    torch.save(feature_net.cpu(), os.path.join(out_dir, 'teacher_stage' + str(stage) + '.pth'))
-                    feature_net.cuda()
-                    ema.restore()
 
-                torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
-                feature_net.cuda()
-                print()
-
-                #  recompute pseudo-labels with current model weights
-                if use_ema:
                     ema.apply_shadow()
 
-                # w/o Adam finetuning
-                all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, num_labels=num_labels, clamp=apply_ct_abdomen_window)
-                # w Adam finetuning
-                all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window)
+                    with torch.no_grad():
 
-                if use_ema:
+                        # random projection network
+                        proj = nn.Conv3d(64, 32, 1, bias=False)
+                        proj.cuda()
+
+                        # feature extraction with g and projection to 32 channels
+                        feat_fix = proj(feature_net[:6](img0_))
+                        feat_mov = proj(feature_net[:6](img1_))
+
+                        disp_to_finetune = coupled_convex(feature_net(img0_), feature_net(img1_), use_ice=True, img_shape=(H, W, D))
+
+                        # finetuning of displacement field with Adam
+                        flow = torch.zeros(training_batch_size, 3, H, W, D).cuda()
+                        for j in range(training_batch_size):
+                            flow[j:j + 1] = AdamReg(5 * feat_fix[j:j + 1], 5 * feat_mov[j:j + 1], disp_to_finetune[j:j + 1], reg_fac=reg_fac)
+                            target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')
+
                     ema.restore()
-
-                # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
-                with torch.no_grad():
-                    tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
-                                * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-                    tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
-
-                print(f'VAL_DICE_TEACHER: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
-                print(f'VAL_SDLOGJ_TEACHER: {sdlogj} -> {sdlogj_adam}')
-
-                # Log metrics to wandb
-                wandb.log({"val_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=i)
-                wandb.log({"val_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=i)
-                wandb.log({"val_sdlogj_wo_adam": sdlogj}, step=i)
-                wandb.log({"val_sdlogj_with_adam": sdlogj_adam}, step=i)
-
-            if i == 0 or i % 100 == 99:
-
-                if i == 0 or i % 1000 == 999:
-                    log_to_wandb = True
                 else:
-                    log_to_wandb = False
+                    for j in range(training_batch_size):
+                        target[j:j + 1] = all_fields[indices[j]:indices[j] + 1].cuda()
+
+                if do_augment:
+                    with torch.no_grad():
+                        for j in range(training_batch_size):
+                            min_val_0 = torch.min(img0_[j:j + 1])
+                            min_val_1 = torch.min(img1_[j:j + 1])
+
+                            disp_field = target[j:j + 1]
+                            disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
+                            img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
+                            img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
+                            target_aug[j:j + 1] = disp_field_aff
+                else:
+                    with torch.no_grad():
+                        for j in range(training_batch_size):
+                            input_field = target[j:j + 1]
+                            disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0., shape=(1, 1, H, W, D))
+                            img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
+                            img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
+                            target_aug[j:j + 1] = disp_field_aff
+
+                img0.requires_grad_(True)
+                img1.requires_grad_(True)
+
+                # feature extraction with feature net g
+                features_fix = feature_net(img0)
+                features_mov = feature_net(img1)
+
+                # differentiable optimization with optimizer h (coupled convex)
+                disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+
+                # consistency loss between prediction and pseudo label
+                tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8])
+                       * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                loss = tre.mean()
+                wandb.log({"tre_loss": loss.detach().cpu().numpy()}, step=i)
+
+                # apply contrastive loss
+                if apply_contrastive_loss:
+
+                    with torch.no_grad():
+                        for j in range(training_batch_size):
+                            min_val_0 = torch.min(img0_[j:j + 1])
+                            min_val_1 = torch.min(img1_[j:j + 1])
+
+                            disp_field = target[j:j + 1]
+                            _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
+                            img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
+                            img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
+
+                        # visualize data for contrastive loss
+                        if visualize:
+                            for j in range(training_batch_size):
+                                image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
+                                image_0_aug = img0_aug.data.cpu().numpy()[j, 0, ...].copy()
+
+                                image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
+                                image_1_aug = img1_aug.data.cpu().numpy()[j, 0, ...].copy()
+
+                                center_slice = image_0_.shape[2] // 2
+
+                                f, axarr = plt.subplots(2, 2)
+                                axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
+                                axarr[0, 1].imshow(image_0_aug[:, :, center_slice], cmap='gray')
+                                axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
+                                axarr[1, 1].imshow(image_1_aug[:, :, center_slice], cmap='gray')
+
+                                plt.show()
+                                plt.close()
+
+                        features_fix_aug = feature_net[:-4](img0_aug)
+                        features_mov_aug = feature_net[:-4](img1_aug)
+
+                    # if use_ema:
+                    #     ema.apply_shadow()
+
+                    features_fix = feature_net[:-4](img0_)
+                    features_mov = feature_net[:-4](img1_)
+
+                    # if use_ema:
+                    #     ema.restore()
+
+                    features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
+                    features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
+
+                    h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
+                    affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                    affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+
+                    featvecs_aug_list = []
+                    featvecs_warped_list = []
+                    for j in range(training_batch_size):
+                        features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
+                        features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+
+                        # Get locations to sample from feature masks
+                        ids = torch.argwhere(torch.zeros(h, w, d) > -1)
+                        ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
+
+                        # Sample feature vectors
+                        ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
+                        featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                        featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+
+                        ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
+                        featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                        featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+
+                    # visualize features
+                    if visualize:
+                        for j in range(training_batch_size):
+                            f_fix = features_fix.data.cpu().numpy()[j, 64, ...].copy()
+                            f_fix_aug = features_fix_aug.data.cpu().numpy()[j, 64, ...].copy()
+                            f_fix_warped = features_fix_warped.data.cpu().numpy()[j, 64, ...].copy()
+
+                            f_mov = features_mov.data.cpu().numpy()[j, 64, ...].copy()
+                            f_mov_aug = features_mov_aug.data.cpu().numpy()[j, 64, ...].copy()
+                            f_mov_warped = features_mov_warped.data.cpu().numpy()[j, 64, ...].copy()
+
+                            center_slice = f_fix.shape[2] // 2
+
+                            f, axarr = plt.subplots(2, 3)
+                            axarr[0, 0].imshow(f_fix[:, :, center_slice], cmap='gray')
+                            axarr[0, 1].imshow(f_fix_aug[:, :, center_slice], cmap='gray')
+                            axarr[0, 2].imshow(f_fix_warped[:, :, center_slice], cmap='gray')
+                            axarr[1, 0].imshow(f_mov[:, :, center_slice], cmap='gray')
+                            axarr[1, 1].imshow(f_mov_aug[:, :, center_slice], cmap='gray')
+                            axarr[1, 2].imshow(f_mov_warped[:, :, center_slice], cmap='gray')
+
+                            plt.show()
+                            plt.close()
+
+                    cl_coeff = 1.
+                    cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
+                    wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+                    loss = cl_coeff * cl_loss + loss
+
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+
+                lr = float(scheduler.get_last_lr()[0])
+                wandb.log({"learning_rate": lr}, step=i)
 
                 if use_ema:
+                    ema.update()
 
-                    ema.apply_shadow()
-
-                    _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
-                        data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
-                    )
-                    print(f'TEST_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
-                    print(f'TEST_SDLOGJ_TEACHER: {test_sdlogj} -> {test_sdlogj_adam}')
-                    wandb.log({"test_dice_wo_adam_finetuing_teacher": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"test_dice_with_adam_finetuing_teacher": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"test_sdlogj_wo_adam_teacher": test_sdlogj}, step=i)
-                    wandb.log({"test_sdlogj_with_adam_teacher": test_sdlogj_adam}, step=i)
+                if i == 0 or i % 100 == 99:
 
                     if i == 0 or i % 1000 == 999:
-                        wandb.log({"sparse_test_dice_wo_adam_finetuing_teacher": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                        wandb.log({"sparse_test_dice_with_adam_finetuing_teacher": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                        wandb.log({"sparse_test_sdlogj_wo_adam_teacher": test_sdlogj}, step=i)
-                        wandb.log({"sparse_test_sdlogj_with_adam_teacher": test_sdlogj_adam}, step=i)
+                        log_to_wandb = True
+                    else:
+                        log_to_wandb = False
 
-                    ema.restore()
-                    log_to_wandb = False
+                    if use_ema:
+                        ema.apply_shadow()
 
-                _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
-                    data_test, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                    log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
-                )
-                print(f'TEST_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
-                print(f'TEST_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')
-                wandb.log({"test_dice_wo_adam_finetuing_student": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                wandb.log({"test_dice_with_adam_finetuing_student": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                wandb.log({"test_sdlogj_wo_adam_student": test_sdlogj}, step=i)
-                wandb.log({"test_sdlogj_with_adam_student": test_sdlogj_adam}, step=i)
+                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
+                            val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                            log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
+                        )
+                        print(f'VAL_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                        print(f'VAL_SDLOGJ_TEACHER: {test_sdlogj} -> {test_sdlogj_adam}')
+                        wandb.log({"val_dice_wo_adam_finetuing_teacher": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                        wandb.log({"val_dice_with_adam_finetuing_teacher": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                        wandb.log({"val_sdlogj_wo_adam_teacher": test_sdlogj}, step=i)
+                        wandb.log({"val_sdlogj_with_adam_teacher": test_sdlogj_adam}, step=i)
 
-                if i == 0 or i % 1000 == 999:
-                    wandb.log({"sparse_test_dice_wo_adam_finetuing_student": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"sparse_test_dice_with_adam_finetuing_student": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"sparse_test_sdlogj_wo_adam_student": test_sdlogj}, step=i)
-                    wandb.log({"sparse_test_sdlogj_with_adam_student": test_sdlogj_adam}, step=i)
+                        if use_ema:
+                            ema.restore()
 
-            feature_net.train()
+                    _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
+                        val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
+                    )
+                    print(f'VAL_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                    print(f'VAL_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')
+                    wandb.log({"val_dice_wo_adam_finetuing_student": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"val_dice_with_adam_finetuing_student": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"val_sdlogj_wo_adam_student": test_sdlogj}, step=i)
+                    wandb.log({"val_sdlogj_with_adam_student": test_sdlogj_adam}, step=i)
 
-            pbar_desciprtion = f"iter: {i}, runtime: {'%0.3f' % (time.time() - t0)} sec, GPU max/memory: {'%0.2f' % (torch.cuda.max_memory_allocated() * 1e-9)} GByte"
-            pbar.set_description(pbar_desciprtion)
-            pbar.update(1)
+                if i % 1000 == 999:
+
+                    # end of stage
+                    stage += 1
+
+                    if use_ema:
+                        ema.apply_shadow()
+                        torch.save(feature_net.cpu(), os.path.join(out_dir, 'teacher_stage' + str(stage) + '.pth'))
+                        feature_net.cuda()
+                        ema.restore()
+
+                    torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
+                    feature_net.cuda()
+
+                    if do_sampling:
+                        #  recompute pseudo-labels with current model weights
+                        # w/o Adam finetuning
+                        all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(sampling_data_loader, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, num_labels=num_labels, clamp=apply_ct_abdomen_window)
+                        # w Adam finetuning
+                        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(sampling_data_loader, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window)
+
+                    # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
+                        with torch.no_grad():
+                            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
+                                        * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                            tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
+
+                        print(f'TRAIN_DICE: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
+                        print(f'TRAIN_SDLOGJ: {sdlogj} -> {sdlogj_adam}')
+
+                        # Log metrics to wandb
+                        wandb.log({"train_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=i)
+                        wandb.log({"train_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=i)
+                        wandb.log({"train_sdlogj_wo_adam": sdlogj}, step=i)
+                        wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=i)
+
+                    i += 1
+                    break
+
+                feature_net.train()
+
+                pbar_desciprtion = f"iter: {i}, runtime: {'%0.3f' % (time.time() - t0)} sec, GPU max/memory: {'%0.2f' % (torch.cuda.max_memory_allocated() * 1e-9)} GByte"
+                pbar.set_description(pbar_desciprtion)
+                pbar.update(1)
+
+                i += 1

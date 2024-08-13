@@ -1,6 +1,6 @@
 import wandb
 import numpy as np
-from tqdm import trange
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 import torch
@@ -11,11 +11,9 @@ from coupled_convex import coupled_convex
 from eval_utils import dice_coeff, jacobian_determinant
 from adam_instance_opt import AdamReg
 
+
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time
-def update_fields(data, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
-    all_img = data['images']
-    all_seg = data['segmentations']
-    pairs = data['pairs']
+def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
 
     # placeholders for dice scores and SDlogJ
     d_all0 = torch.empty(0, num_labels - 1)
@@ -25,25 +23,26 @@ def update_fields(data, feature_net, use_adam, num_labels, clamp, num_warps=1, c
     sdlogj_net = []
     sdlog_adam = []
 
-    _, _, H, W, D = all_img.shape
-    all_fields = torch.zeros(len(pairs), 3, H // 2, W // 2, D // 2)
+    _, H, W, D = data_loader.dataset[0]['image_1'].shape
+    all_fields = torch.zeros(len(data_loader), 3, H // 2, W // 2, D // 2)
     grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda(), (1, 1, H, W, D))
 
     feature_net.eval()
 
-    for idx in trange(len(pairs)):
+    idx = 0
+    for i, data_pair in enumerate(tqdm(data_loader)):
         with torch.cuda.amp.autocast():
             with torch.no_grad():
                 # select image pair and segmentations
                 if clamp:
-                    img0 = torch.clamp(all_img[pairs[idx, 0]].cuda().unsqueeze(0), -.4, .6)  # .repeat(1,2,1,1,1)
-                    img1 = torch.clamp(all_img[pairs[idx, 1]].cuda().unsqueeze(0), -.4, .6)  # .repeat(1,2,1,1,1)
+                    img0 = torch.clamp((data_pair['image_1'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
+                    img1 = torch.clamp((data_pair['image_2'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
                 else:
-                    img0 = all_img[pairs[idx, 0]].cuda().unsqueeze(0)
-                    img1 = all_img[pairs[idx, 1]].cuda().unsqueeze(0)
+                    img0 = (data_pair['image_1'] / 500).cuda()
+                    img1 = (data_pair['image_2'] / 500).cuda()
                 img1_orig = img1.clone()
-                fixed_seg = all_seg[pairs[idx, 0]].cuda()
-                moving_seg = all_seg[pairs[idx, 1]].cuda()
+                fixed_seg = data_pair['seg_1'].cuda().squeeze(0)
+                moving_seg = data_pair['seg_2'].cuda().squeeze(0)
                 moving_seg_orig = moving_seg.clone()
 
                 # feature extraction with feature net g
@@ -148,5 +147,7 @@ def update_fields(data, feature_net, use_adam, num_labels, clamp, num_warps=1, c
 
             else:
                 all_fields[idx] = F.interpolate(disp, scale_factor=.5, mode='trilinear').cpu()
+
+            idx += 1
 
     return all_fields, d_all_net, d_all0, d_all_adam, d_all_ident, np.mean(sdlogj_net), np.mean(sdlog_adam)
