@@ -20,8 +20,14 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument(
-        "--ckpt_path",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/cl1_clamp1_s16_rf10_ref1/stage8.pth",
+        "--ckpt_path_1",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_baseline/student_stage10.pth",
+        help="chekpoint to load",
+        type=str,
+    )
+    parser.add_argument(
+        "--ckpt_path_2",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_cl/student_stage10.pth",
         help="chekpoint to load",
         type=str,
     )
@@ -107,8 +113,10 @@ if __name__ == "__main__":
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     import torch
+    torch.multiprocessing.set_sharing_strategy('file_system')
 
     if args.phase == 'test':
+
         test(args)
 
     else:
