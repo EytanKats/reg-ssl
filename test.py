@@ -55,7 +55,7 @@ def test(args):
     x = torch.flatten(d_all_adam).numpy()
     y = torch.flatten(d_all_adam_).numpy()
 
-    res = wilcoxon(x, y, alternative='less')
+    res = wilcoxon(x, y)
     print(res)
 
 
