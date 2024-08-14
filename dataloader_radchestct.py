@@ -39,7 +39,7 @@ def read_json_data_file(
 
 
 class GPUCacheDataset(IterableDataset):
-    def __init__(self, data_list, batch_size):
+    def __init__(self, data_list, batch_size, weights):
         self.data_list = data_list
         self.batch_size = batch_size
 
@@ -60,7 +60,7 @@ class GPUCacheDataset(IterableDataset):
             if data_pair['image_2'] not in self.images_cache:
                 self.images_cache[data_pair['image_2']] = torch.tensor(nib.load(data_pair['image_2']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
 
-        self.weights = torch.ones(len(data_list), dtype=torch.float).cuda()
+        self.weights = weights
 
     def generate(self):
         while True:
@@ -77,14 +77,31 @@ class GPUCacheDataset(IterableDataset):
         return iter(self.generate())
 
 
-def get_data_loader(data_file, root_dir, key='training', batch_size=1, num_workers=8, shuffle=False, drop_last=False, sampler=None, fast=False, max_samples_num=None):
+def get_data_loader(
+        data_file,
+        root_dir,
+        key='training',
+        batch_size=1,
+        num_workers=8,
+        shuffle=False,
+        drop_last=False,
+        sampler=None,
+        fast=False,
+        max_samples_num=None,
+        weights=None
+):
 
     data_list = read_json_data_file(data_file_path=data_file, data_dir=root_dir, keys=[key])[0]
-    if max_samples_num is not None:
+
+    if max_samples_num is not None and weights is not None:
+        indices = list(WeightedRandomSampler(weights, max_samples_num, replacement=True))
+        data_list = [data_list[idx] for idx in indices]
+        weights = [weights[idx] for idx in indices]
+    elif max_samples_num is not None:
         data_list = data_list[:max_samples_num]
 
     if fast:
-        data_loader = GPUCacheDataset(data_list=data_list, batch_size=batch_size)
+        data_loader = GPUCacheDataset(data_list=data_list, batch_size=batch_size, weights=weights)
     else:
 
         radchestct_transform = monai.transforms.Compose(

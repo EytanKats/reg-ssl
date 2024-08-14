@@ -46,7 +46,6 @@ def train(args):
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
     visualize = True if args.visualize == 'true' else False
-    max_samples_num = 30
     cache_data_to_gpu = True
     training_batch_size = 2
     num_sampled_featvecs = 1000
@@ -55,6 +54,7 @@ def train(args):
     if dataset == 'abdomenctct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
+        max_samples_num = None
 
         sampling_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -81,6 +81,7 @@ def train(args):
     elif dataset == 'radchestct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_fold0.json'
+        max_samples_num = 30
 
         sampling_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -89,8 +90,7 @@ def train(args):
             batch_size=1,
             num_workers=4,
             shuffle=False,
-            drop_last=False,
-            max_samples_num=max_samples_num
+            drop_last=False
         )
         val_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -193,9 +193,11 @@ def train(args):
     stage = 0
     t0 = time.time()
     train_data_loader = None
+    update_data_loader = True
     with tqdm(total=iterations, file=sys.stdout, colour="red", ncols=200) as pbar:
         while i < iterations:
-            if i == 0 or i % 1000 == 999:
+
+            if update_data_loader:
 
                 # difficulty weighting
                 if use_adam and do_sampling:
@@ -205,18 +207,15 @@ def train(args):
                     q = torch.ones(len(sampling_data_loader))
 
                 if cache_data_to_gpu:
-                    if train_data_loader is None:
-                        train_data_loader = get_data_loader(
+                    train_data_loader = get_data_loader(
                             root_dir=root_dir,
                             data_file=data_file,
                             key='training',
                             batch_size=training_batch_size,
                             fast=True,
-                            max_samples_num=max_samples_num
+                            max_samples_num=max_samples_num,
+                            weights=q
                         )
-                        train_data_loader.weights = q
-                    else:
-                        train_data_loader.weights = q
                 else:
                     sampler = WeightedRandomSampler(q, training_batch_size, replacement=True)
                     train_data_loader = get_data_loader(
@@ -227,6 +226,8 @@ def train(args):
                         num_workers=8,
                         sampler=sampler,
                         max_samples_num=max_samples_num)
+
+                update_data_loader = False
 
             for data_pair in train_data_loader:
                 optimizer.zero_grad()
@@ -511,6 +512,7 @@ def train(args):
                         wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                     i += 1
+                    update_data_loader = True
                     break
 
                 feature_net.train()
