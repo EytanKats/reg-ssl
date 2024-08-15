@@ -38,6 +38,7 @@ def train(args):
     iterations = args.num_iterations
     num_warps = args.num_warps
     reg_fac = args.reg_fac
+    use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
     use_ice = True if args.ice == 'true' else False
     use_adam = True if args.adam == 'true' else False
     do_sampling = True if args.sampling == 'true' else False
@@ -77,6 +78,7 @@ def train(args):
         )
         num_labels = 14
         apply_ct_abdomen_window = True
+        apply_ct_abdomen_window_training = False
 
     elif dataset == 'radchestct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
@@ -103,6 +105,7 @@ def train(args):
         )
         num_labels = 22
         apply_ct_abdomen_window = False
+        apply_ct_abdomen_window_training = False
 
     # initialize feature net
     feature_net = nn.Sequential(
@@ -175,7 +178,12 @@ def train(args):
 
     optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
     eta_min = 0.00001
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
+
+    if use_optim_with_restarts:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=eta_min)
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
+
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -240,7 +248,7 @@ def train(args):
                 img1_.requires_grad_(True)
 
                 # apply abdomen CT window
-                if apply_ct_abdomen_window:
+                if apply_ct_abdomen_window_training:
                     with torch.no_grad():
                         for j in range(training_batch_size):
                             img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)

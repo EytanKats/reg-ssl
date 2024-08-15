@@ -50,6 +50,11 @@ if __name__ == "__main__":
         type=int,
     )
     parser.add_argument(
+        "--use_optim_with_restarts",
+        default="true",
+        type=str,
+    )
+    parser.add_argument(
         "--num_warps",
         default=2,
         type=int,
