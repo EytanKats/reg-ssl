@@ -122,7 +122,7 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
 
                     # warp moving image and visualize central slice of warped and fixed image
                     min_1 = torch.min(img1_orig)
-                    warped_img_adam = F.grid_sample(img1_orig - min_1, grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest') + min_1
+                    warped_img_adam = F.grid_sample(img1_orig - min_1, grid0 + flow.permute(0, 2, 3, 4, 1), mode='bilinear') + min_1
                     if clamp:
                         warped_img_adam = torch.clamp(warped_img_adam, -.4, .6)
 
