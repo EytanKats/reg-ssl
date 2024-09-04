@@ -96,7 +96,7 @@ if __name__ == "__main__":
     # whether to use teacher-student approach during the training
     parser.add_argument(
         "--ema",
-        default="true",
+        default="false",
         type=str,
     )
     # whether to apply contrastive loss during training
@@ -122,6 +122,7 @@ if __name__ == "__main__":
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     import torch
+    torch.backends.cudnn.benchmark = True
     torch.multiprocessing.set_sharing_strategy('file_system')
 
     if args.phase == 'test':
