@@ -21,13 +21,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ckpt_path_1",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_baseline/student_stage10.pth",
+        default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_2/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_3/student_stage10.pth"],
         help="chekpoint to load",
         type=str,
     )
     parser.add_argument(
         "--ckpt_path_2",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_cl/student_stage10.pth",
+        default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_1/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_2/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_3/student_stage10.pth"],
         help="chekpoint to load",
         type=str,
     )
