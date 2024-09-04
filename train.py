@@ -170,12 +170,14 @@ def train(args):
                            nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 16, 1)).cuda()
 
+    # proj_net = nn.Sequential(nn.BatchNorm3d(128), nn.ReLU(), nn.Conv3d(128, 128, 1)).cuda()
     # initialize EMA
     ema = EMA(feature_net, 0.999)
 
     # Instantiate InfoNCE loss
     info_loss = InfoNCE(temperature=info_nce_temperature)
 
+    # optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=0.001)
     optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
     eta_min = 0.00001
 
