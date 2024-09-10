@@ -31,13 +31,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--base_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl",
         help="directory to write results to",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="experiments/trying_reproduce/",
+        default="experiments/trying_reproduce",
         help="directory to write results to",
         type=str,
     )
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     if DATASET == "radchestct":
         parser.add_argument(
             "--root_dir",
-            default="data/radchest_ct/",
+            default="data/radchest_ct",
             help="directory with the data files",
             type=str,
         )
