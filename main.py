@@ -44,9 +44,8 @@ if __name__ == "__main__":
     # ##########################
     # ##### DATA SETTINGS #####
 
-    DATASET = 'radchestct'
+    DATASET = 'radchestct'  # dataset: abdomenctct, radchestct
 
-    # dataset: abdomenctct, radchestct
     parser.add_argument(
         "--dataset",
         default=DATASET,
