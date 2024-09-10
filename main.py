@@ -22,10 +22,11 @@ if __name__ == "__main__":
     # ############################
     # ##### GENERAL SETTINGS #####
 
-    # train or test
+    PHASE = 'train'  # train or test
+
     parser.add_argument(
         "--phase",
-        default="train",
+        default=PHASE,
         type=str,
     )
     parser.add_argument(
@@ -135,22 +136,23 @@ if __name__ == "__main__":
     # ##########################
     # ##### TEST SETTINGS #####
 
-    parser.add_argument(
-        "--ckpt_path_1",
-        default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
-                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_2/student_stage10.pth",
-                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_3/student_stage10.pth"],
-        help="chekpoint to load",
-        type=str,
-    )
-    parser.add_argument(
-        "--ckpt_path_2",
-        default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_1/student_stage10.pth",
-                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_2/student_stage10.pth",
-                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_3/student_stage10.pth"],
-        help="chekpoint to load",
-        type=str,
-    )
+    if PHASE == 'test':
+        parser.add_argument(
+            "--ckpt_path_1",
+            default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
+                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_2/student_stage10.pth",
+                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_3/student_stage10.pth"],
+            help="chekpoint to load",
+            type=str,
+        )
+        parser.add_argument(
+            "--ckpt_path_2",
+            default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_1/student_stage10.pth",
+                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_2/student_stage10.pth",
+                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_3/student_stage10.pth"],
+            help="chekpoint to load",
+            type=str,
+        )
 
     # #############################
     # ##### TRAINING SETTINGS #####
