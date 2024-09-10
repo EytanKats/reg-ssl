@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch.utils.data import IterableDataset, WeightedRandomSampler
 
 from convex_adam_utils import MINDSSC
+from data_utils import resize_with_grid_sample_3d
 
 
 KEYS = ['image_1', 'image_2', 'seg_1', 'seg_2']
@@ -61,10 +62,12 @@ class GPUCacheDataset(IterableDataset):
 
             if data_pair['image_1'] not in self.images_cache:
                 self.images_cache[data_pair['image_1']] = torch.tensor(nib.load(data_pair['image_1']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
+                self.images_cache[data_pair['image_1']] = resize_with_grid_sample_3d(self.images_cache[data_pair['image_1']], 192, 192, 160)
                 self.mind_cache[data_pair['image_1']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_1']].cuda(), 1, 2), 2).cpu()
 
             if data_pair['image_2'] not in self.images_cache:
                 self.images_cache[data_pair['image_2']] = torch.tensor(nib.load(data_pair['image_2']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
+                self.images_cache[data_pair['image_2']] = resize_with_grid_sample_3d(self.images_cache[data_pair['image_2']], 192, 192, 160)
                 self.mind_cache[data_pair['image_2']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_2']].cuda(), 1, 2), 2).cpu()
 
         self.weights = torch.ones(len(data_list))
@@ -115,6 +118,7 @@ def get_data_loader(
             [
                 monai.transforms.LoadImaged(keys=KEYS),
                 monai.transforms.EnsureChannelFirstd(keys=KEYS, channel_dim='no_channel'),
+                monai.transforms.Resized(keys=KEYS, spatial_size=(192, 192, 160), mode=['trilinear', 'trilinear', 'nearest', 'nearest']),
                 monai.transforms.ToTensord(keys=KEYS)
             ]
         )
