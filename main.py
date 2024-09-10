@@ -183,6 +183,12 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to use mind or tre loss
+    parser.add_argument(
+        "--main_loss",
+        default="tre",
+        type=str,
+    )
     # whether to apply contrastive loss during training
     parser.add_argument(
         "--contrastive",

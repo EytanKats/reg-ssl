@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from info_nce import InfoNCE
-from data_utils import augment_affine_nl_v2, resize_with_grid_sample_3d, get_rand_affine
+from data_utils import augment_affine_nl, augment_affine_nl_v2, resize_with_grid_sample_3d, get_rand_affine
 from dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
@@ -50,6 +50,7 @@ def train(args):
     learning_rate = args.learning_rate
     min_learning_rate = args.min_learning_rate
     do_augment = True if args.augment == 'true' else False
+    main_loss = args.main_loss
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     cl_coeff = args.cl_coeff
     info_nce_temperature = args.info_nce_temperature
@@ -58,7 +59,19 @@ def train(args):
 
     visualize = True if args.visualize == 'true' else False
 
-    # Load validation data
+    # Get training data loader that is used to calculate pseudo labels
+    pseudo_labels_data_loader = get_data_loader(
+        root_dir=root_dir,
+        data_file=data_file,
+        key='training',
+        batch_size=1,
+        num_workers=4,
+        shuffle=False,
+        drop_last=False,
+        max_samples_num=max_samples_num
+    )
+
+    # Get validation data loader
     val_data_loader = get_data_loader(
         root_dir=root_dir,
         data_file=data_file,
@@ -71,7 +84,28 @@ def train(args):
 
     _, H, W, D = val_data_loader.dataset[0]['image_1'].shape
 
-    # reinitialize feature net with novel random weights
+    # Create pseudo-labels for the first stage
+    feature_net = nn.Sequential(
+        nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
+        nn.Conv3d(32, 64, 3, padding=1), nn.BatchNorm3d(64), nn.ReLU(),
+        nn.Conv3d(64, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
+        nn.Conv3d(128, 128, 3, padding=1), nn.BatchNorm3d(128), nn.ReLU(),
+        nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
+        nn.Conv3d(128, 16, 1)).cuda()
+
+    pseudo_fields, _, _, _, _, _, _ = update_fields(
+        pseudo_labels_data_loader,
+        feature_net,
+        use_adam=True,
+        num_warps=2,
+        ice=True,
+        reg_fac=1.0,
+        compute_jacobian=True,
+        num_labels=num_labels,
+        clamp=apply_ct_abdomen_window
+    )
+
+    # Reinitialize feature net with novel random weights
     feature_net = nn.Sequential(nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
                            nn.Conv3d(32, 64, 3, padding=1), nn.BatchNorm3d(64), nn.ReLU(),
                            nn.Conv3d(64, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
@@ -85,7 +119,10 @@ def train(args):
     info_loss = InfoNCE(temperature=info_nce_temperature)
 
     optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=min_learning_rate)
+    if main_loss == 'tre':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=min_learning_rate)
+    elif main_loss == 'mind':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=min_learning_rate)
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -98,6 +135,8 @@ def train(args):
     affine2_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
     mind0 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
     mind1 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
+    target = torch.zeros(training_batch_size, 3, H // 2, W // 2, D // 2).cuda()
+    target_aug = torch.zeros(training_batch_size, 3, H // 2, W // 2, D // 2).cuda()
 
     grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda().repeat(2, 1, 1), [2, 1, H//2, W//2, D//2], align_corners=False)
 
@@ -128,6 +167,10 @@ def train(args):
                 img1_ = (data_pair['image_2'] / 500).cuda()
                 mind0_ = data_pair['mind_1'].cuda()
                 mind1_ = data_pair['mind_2'].cuda()
+                indices = data_pair['idx'].numpy().tolist()
+
+                for j in range(training_batch_size):
+                    target[j:j + 1] = pseudo_fields[indices[j]:indices[j] + 1].cuda()
 
                 img0_.requires_grad_(True)
                 img1_.requires_grad_(True)
@@ -160,9 +203,11 @@ def train(args):
                             min_val_0 = torch.min(img0_[j:j + 1])
                             min_val_1 = torch.min(img1_[j:j + 1])
 
-                            affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl_v2(shape=(1, 1, H, W, D))
+                            disp_field = target[j:j + 1]
+                            disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
                             img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
                             img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
+                            target_aug[j:j + 1] = disp_field_aff
 
                             h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
                             affine1_mind = resize_with_grid_sample_3d(affine1[j:j + 1].permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
@@ -172,10 +217,11 @@ def train(args):
                             mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind)
                 else:
                     with torch.no_grad():
-                        for j in range(training_batch_size):
-                            affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl_v2(strength=0., shape=(1, 1, H, W, D))
-                            img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
-                            img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
+                        disp_field = target[j:j + 1]
+                        disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D), strength=0.)
+                        img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
+                        img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
+                        target_aug[j:j + 1] = disp_field_aff
 
                 img0.requires_grad_(True)
                 img1.requires_grad_(True)
@@ -186,9 +232,14 @@ def train(args):
                 features_fix = feature_net(img0)
                 features_mov = feature_net(img1)
 
-                disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
-                mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
-                loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8])
+                if main_loss == 'mind':
+                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                    mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
+                    loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
+                elif main_loss == 'tre':
+                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8]) * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                    loss = tre.mean()
 
                 wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
 
@@ -320,6 +371,19 @@ def train(args):
 
                     torch.save(feature_net.cpu(), os.path.join(out_dir, 'stage' + str(stage) + '.pth'))
                     feature_net.cuda()
+
+                    # Generate pseudo-labels for the next stage
+                    pseudo_fields, _, _, _, _, _, _ = update_fields(
+                        pseudo_labels_data_loader,
+                        feature_net,
+                        use_adam=True,
+                        num_warps=2,
+                        ice=True,
+                        reg_fac=1.0,
+                        compute_jacobian=True,
+                        num_labels=num_labels,
+                        clamp=apply_ct_abdomen_window
+                    )
 
                 feature_net.train()
                 proj_net.train()
