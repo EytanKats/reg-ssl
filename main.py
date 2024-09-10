@@ -210,7 +210,7 @@ if __name__ == "__main__":
     # strength of affine augmentations for contrastive loss
     parser.add_argument(
         "--strength",
-        default=0.25,
+        default=0.05,
         type=int,
     )
 
