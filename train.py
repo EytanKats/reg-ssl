@@ -305,19 +305,20 @@ def train(args):
                         val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
                         log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
                     )
-                    print(f'VAL_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
-                    print(f'VAL_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')
-                    wandb.log({"val_dice_wo_adam_finetuing_student": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"val_dice_with_adam_finetuing_student": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                    wandb.log({"val_sdlogj_wo_adam_student": test_sdlogj}, step=i)
-                    wandb.log({"val_sdlogj_with_adam_student": test_sdlogj_adam}, step=i)
+
+                    print(f'DICE: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                    print(f'SDLOGJ: {test_sdlogj} -> {test_sdlogj_adam}')
+                    wandb.log({"dice": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"dice_after_instance_optimisation": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
+                    wandb.log({"sdlogj": test_sdlogj}, step=i)
+                    wandb.log({"sdlogj__after_instance_optimisation": test_sdlogj_adam}, step=i)
 
                 if i % 1000 == 999:
 
                     # end of stage
                     stage += 1
 
-                    torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
+                    torch.save(feature_net.cpu(), os.path.join(out_dir, 'stage' + str(stage) + '.pth'))
                     feature_net.cuda()
 
                 feature_net.train()
