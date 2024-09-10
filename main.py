@@ -181,6 +181,12 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # weight of contrastive loss
+    parser.add_argument(
+        "--cl_coeff",
+        default=0.01,
+        type=float,
+    )
     # number of positive pairs for contrastive loss
     parser.add_argument(
         "--num_sampled_featvecs",

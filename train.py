@@ -50,6 +50,7 @@ def train(args):
     min_learning_rate = args.min_learning_rate
     do_augment = True if args.augment == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
+    cl_coeff = args.cl_coeff
     info_nce_temperature = args.info_nce_temperature
     strength = args.strength
     num_sampled_featvecs = args.num_sampled_featvecs
@@ -278,10 +279,12 @@ def train(args):
                             plt.show()
                             plt.close()
 
-                    cl_coeff = 1.
-                    cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
+                    cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list)) * cl_coeff
                     wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
-                    loss = cl_coeff * cl_loss + loss
+
+                    loss = cl_loss + loss
+
+
 
                 loss.backward()
                 optimizer.step()
