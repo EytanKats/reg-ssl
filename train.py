@@ -165,11 +165,11 @@ def train(args):
                             img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
 
                             h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
-                            affine1_mind = resize_with_grid_sample_3d(affine1.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                            affine2_mind = resize_with_grid_sample_3d(affine2.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                            affine1_mind = resize_with_grid_sample_3d(affine1[j:j + 1].permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                            affine2_mind = resize_with_grid_sample_3d(affine2[j:j + 1].permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
-                            mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind[j:j + 1])
-                            mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind[j:j + 1])
+                            mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind)
+                            mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind)
                 else:
                     with torch.no_grad():
                         for j in range(training_batch_size):
@@ -330,8 +330,11 @@ def train(args):
 
                 i += 1
 
-                if i % 1000 == 0 and refresh_data_loader:
-                    update_data_loader = True
+                if i % 1000 == 0:
+
+                    if refresh_data_loader:
+                        update_data_loader = True
+
                     break
 
 
