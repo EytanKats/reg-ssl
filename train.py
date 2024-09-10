@@ -49,9 +49,9 @@ def train(args):
     info_nce_temperature = args.info_nce_temperature
     strength = args.strength
     visualize = True if args.visualize == 'true' else False
-    cache_data_to_gpu = True
-    training_batch_size = 2
-    num_sampled_featvecs = 1000
+    cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
+    training_batch_size = args.training_batch_size
+    num_sampled_featvecs = args.num_sampled_featvecs
 
     # Loading data (segmentations only used for validation after each stage)
     if dataset == 'abdomenctct':

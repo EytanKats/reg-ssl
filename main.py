@@ -13,6 +13,12 @@ if __name__ == "__main__":
         default="radchestct",
         type=str,
     )
+    # cache data to GPU to save training time
+    parser.add_argument(
+        "--cache_data_to_gpu",
+        default="true",
+        type=str,
+    )
     # train or test
     parser.add_argument(
         "--phase",
@@ -51,6 +57,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_iterations",
         default=10000,
+        type=int,
+    )
+    parser.add_argument(
+        "--training_batch_size",
+        default=2,
         type=int,
     )
     parser.add_argument(
@@ -110,6 +121,12 @@ if __name__ == "__main__":
         "--contrastive",
         default="true",
         type=str,
+    )
+    # number of positive pairs for contrastive loss
+    parser.add_argument(
+        "--num_sampled_featvecs",
+        default=1000,
+        type=int,
     )
     # temperature factor for infoNCE loss
     parser.add_argument(
