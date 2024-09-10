@@ -1,12 +1,49 @@
-import os
 import argparse
 
-from train import train
 from test import test
-
+from train import train
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(description="PyTorch Object Detection Training")
+
+    # ###########################
+    # ##### SYSTEM SETTINGS #####
+
+    # GPU to use
+    parser.add_argument(
+        "--gpu",
+        default="0",
+        metavar="FILE",
+        help="gpu to train on",
+        type=str,
+    )
+
+    # ############################
+    # ##### GENERAL SETTINGS #####
+
+    # train or test
+    parser.add_argument(
+        "--phase",
+        default="train",
+        type=str,
+    )
+    parser.add_argument(
+        "--base_dir",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/",
+        help="directory to write results to",
+        type=str,
+    )
+    parser.add_argument(
+        "--out_dir",
+        default="experiments/trying_reproduce/",
+        help="directory to write results to",
+        type=str,
+    )
+
+    # ##########################
+    # ##### DATA SETTINGS #####
+
     # dataset: abdomenctct, radchestct
     parser.add_argument(
         "--dataset",
@@ -19,12 +56,10 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    # train or test
-    parser.add_argument(
-        "--phase",
-        default="train",
-        type=str,
-    )
+
+    # ##########################
+    # ##### TEST SETTINGS #####
+
     parser.add_argument(
         "--ckpt_path_1",
         default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
@@ -41,19 +76,10 @@ if __name__ == "__main__":
         help="chekpoint to load",
         type=str,
     )
-    parser.add_argument(
-        "--out_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/trying_reproduce",
-        help="directory to write results to",
-        type=str,
-    )
-    parser.add_argument(
-        "--gpu",
-        default="0",
-        metavar="FILE",
-        help="gpu to train on",
-        type=str,
-    )
+
+    # #############################
+    # ##### TRAINING SETTINGS #####
+
     parser.add_argument(
         "--num_iterations",
         default=10000,
@@ -110,7 +136,7 @@ if __name__ == "__main__":
         default="false",
         type=str,
     )
-    # whether to use teacher-student approach during the training
+    # whether to use mind loss
     parser.add_argument(
         "--use_mind",
         default="false",
@@ -140,23 +166,22 @@ if __name__ == "__main__":
         default=0.25,
         type=int,
     )
+
+    # ##########################
+    # ##### DEBUG SETTINGS #####
+
     # visualize with matplotlib
     parser.add_argument(
         "--visualize",
         default="false",
         type=str,
     )
+
+    # #############################
+    # ##### RUN TRAIN OR TEST #####
+
     args = parser.parse_args()
-
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    import torch
-    torch.backends.cudnn.benchmark = True
-    torch.multiprocessing.set_sharing_strategy('file_system')
-
     if args.phase == 'test':
-
         test(args)
-
     else:
         train(args)

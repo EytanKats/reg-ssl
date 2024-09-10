@@ -21,6 +21,10 @@ from coupled_convex import coupled_convex
 
 def train(args):
 
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    torch.multiprocessing.set_sharing_strategy('file_system')
+
     # Initialize wandb
     wandb.init(
         project="reg-ssl",
@@ -29,7 +33,7 @@ def train(args):
     )
 
     # Create output directory
-    out_dir = args.out_dir
+    out_dir = os.path.join(args.base_dir, args.out_dir)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
@@ -53,7 +57,7 @@ def train(args):
     training_batch_size = args.training_batch_size
     num_sampled_featvecs = args.num_sampled_featvecs
 
-    # Loading data (segmentations only used for validation after each stage)
+    # Load validation data
     if dataset == 'abdomenctct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
