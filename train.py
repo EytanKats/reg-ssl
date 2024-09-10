@@ -8,11 +8,8 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import WeightedRandomSampler
 
-from ema import EMA
 from info_nce import InfoNCE
-from adam_instance_opt import AdamReg
 from data_utils import augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
 from dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
@@ -45,10 +42,8 @@ def train(args):
     iterations = args.num_iterations
     training_batch_size = args.training_batch_size
 
-    reg_fac = args.reg_fac
     use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
     do_augment = True if args.augment == 'true' else False
-    use_ema = True if args.ema == 'true' else False
     use_mind = True if args.use_mind == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
@@ -106,9 +101,6 @@ def train(args):
 
     # proj_net = nn.Sequential(nn.BatchNorm3d(128), nn.ReLU(), nn.Conv3d(128, 128, 1)).cuda()
     proj_net = nn.Sequential(nn.Conv3d(128, 128, 1)).cuda()
-
-    # initialize EMA
-    ema = EMA(feature_net, 0.999)
 
     # Instantiate InfoNCE loss
     info_loss = InfoNCE(temperature=info_nce_temperature)
@@ -205,33 +197,8 @@ def train(args):
                         plt.show()
                         plt.close()
 
-                # pseudo-label generation
-                if use_ema:
-
-                    ema.apply_shadow()
-
-                    with torch.no_grad():
-
-                        # random projection network
-                        proj = nn.Conv3d(64, 32, 1, bias=False)
-                        proj.cuda()
-
-                        # feature extraction with g and projection to 32 channels
-                        feat_fix = proj(feature_net[:6](img0_))
-                        feat_mov = proj(feature_net[:6](img1_))
-
-                        disp_to_finetune = coupled_convex(feature_net(img0_), feature_net(img1_), use_ice=True, img_shape=(H, W, D))
-
-                        # finetuning of displacement field with Adam
-                        flow = torch.zeros(training_batch_size, 3, H, W, D).cuda()
-                        for j in range(training_batch_size):
-                            flow[j:j + 1] = AdamReg(5 * feat_fix[j:j + 1], 5 * feat_mov[j:j + 1], disp_to_finetune[j:j + 1], reg_fac=reg_fac)
-                            target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')
-
-                    ema.restore()
-                else:
-                    for j in range(training_batch_size):
-                        target[j:j + 1] = all_fields[indices[j]:indices[j] + 1].cuda()
+                for j in range(training_batch_size):
+                    target[j:j + 1] = all_fields[indices[j]:indices[j] + 1].cuda()
 
                 if do_augment:
                     with torch.no_grad():
@@ -324,16 +291,10 @@ def train(args):
                         # features_fix_aug = feature_net[:-4](img0_aug)
                         # features_mov_aug = feature_net[:-4](img1_aug)
 
-                    # if use_ema:
-                    #     ema.apply_shadow()
-
                     features_fix = proj_net(feature_net[:-4](img0_))
                     features_mov = proj_net(feature_net[:-4](img1_))
                     # features_fix = feature_net[:-4](img0_)
                     # features_mov = feature_net[:-4](img1_)
-
-                    # if use_ema:
-                    #     ema.restore()
 
                     features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
                     features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
@@ -397,32 +358,12 @@ def train(args):
                 lr = float(scheduler.get_last_lr()[0])
                 wandb.log({"learning_rate": lr}, step=i)
 
-                if use_ema:
-                    ema.update()
-
                 if i == 0 or i % 100 == 99:
 
                     if i == 0 or i % 1000 == 999:
                         log_to_wandb = True
                     else:
                         log_to_wandb = False
-
-                    if use_ema:
-                        ema.apply_shadow()
-
-                        _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
-                            val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                            log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window, use_mind=use_mind
-                        )
-                        print(f'VAL_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
-                        print(f'VAL_SDLOGJ_TEACHER: {test_sdlogj} -> {test_sdlogj_adam}')
-                        wandb.log({"val_dice_wo_adam_finetuing_teacher": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                        wandb.log({"val_dice_with_adam_finetuing_teacher": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
-                        wandb.log({"val_sdlogj_wo_adam_teacher": test_sdlogj}, step=i)
-                        wandb.log({"val_sdlogj_with_adam_teacher": test_sdlogj_adam}, step=i)
-
-                        if use_ema:
-                            ema.restore()
 
                     _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                         val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
@@ -439,12 +380,6 @@ def train(args):
 
                     # end of stage
                     stage += 1
-
-                    if use_ema:
-                        ema.apply_shadow()
-                        torch.save(feature_net.cpu(), os.path.join(out_dir, 'teacher_stage' + str(stage) + '.pth'))
-                        feature_net.cuda()
-                        ema.restore()
 
                     torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
                     feature_net.cuda()

@@ -101,22 +101,10 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    # regularization weight in Adam optimization during training
-    parser.add_argument(
-        "--reg_fac",
-        default=1.,
-        type=float,
-    )
     # whether to use affine input augmentations during training
     parser.add_argument(
         "--augment",
         default="true",
-        type=str,
-    )
-    # whether to use teacher-student approach during the training
-    parser.add_argument(
-        "--ema",
-        default="false",
         type=str,
     )
     # whether to use mind loss
