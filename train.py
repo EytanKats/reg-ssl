@@ -46,7 +46,8 @@ def train(args):
     iterations = args.num_iterations
     training_batch_size = args.training_batch_size
 
-    use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
+    learning_rate = args.learning_rate
+    min_learning_rate = args.min_learning_rate
     do_augment = True if args.augment == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
@@ -76,21 +77,13 @@ def train(args):
                            nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 16, 1)).cuda()
 
-    # proj_net = nn.Sequential(nn.BatchNorm3d(128), nn.ReLU(), nn.Conv3d(128, 128, 1)).cuda()
     proj_net = nn.Sequential(nn.Conv3d(128, 128, 1)).cuda()
 
     # Instantiate InfoNCE loss
     info_loss = InfoNCE(temperature=info_nce_temperature)
 
-    optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=0.001)
-    # optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
-    eta_min = 0.00001
-
-    if use_optim_with_restarts:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=eta_min)
-    else:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
-
+    optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=min_learning_rate)
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -231,13 +224,9 @@ def train(args):
 
                         features_fix_aug = proj_net(feature_net[:-4](img0_aug))
                         features_mov_aug = proj_net(feature_net[:-4](img1_aug))
-                        # features_fix_aug = feature_net[:-4](img0_aug)
-                        # features_mov_aug = feature_net[:-4](img1_aug)
 
                     features_fix = proj_net(feature_net[:-4](img0_))
                     features_mov = proj_net(feature_net[:-4](img1_))
-                    # features_fix = feature_net[:-4](img0_)
-                    # features_mov = feature_net[:-4](img1_)
 
                     features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
                     features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()

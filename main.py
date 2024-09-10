@@ -160,9 +160,14 @@ if __name__ == "__main__":
         type=int,
     )
     parser.add_argument(
-        "--use_optim_with_restarts",
-        default="true",
-        type=str,
+        "--learning_rate",
+        default=0.001,
+        type=float,
+    )
+    parser.add_argument(
+        "--min_learning_rate",
+        default=0.00001,
+        type=float,
     )
     # whether to use affine input augmentations during training
     parser.add_argument(
