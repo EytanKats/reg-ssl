@@ -306,7 +306,7 @@ def train(args):
                         log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
                     )
 
-                    print(f'DICE: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
+                    print(f'DICE: {d_all0_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                     print(f'SDLOGJ: {test_sdlogj} -> {test_sdlogj_adam}')
                     wandb.log({"dice": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
                     wandb.log({"dice_after_instance_optimisation": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=i)
