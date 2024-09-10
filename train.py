@@ -57,8 +57,6 @@ def train(args):
 
     visualize = True if args.visualize == 'true' else False
 
-
-
     # Load validation data
     if dataset == 'abdomenctct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
@@ -96,16 +94,6 @@ def train(args):
         apply_ct_abdomen_window = False
         apply_ct_abdomen_window_training = False
 
-    # initialize feature net
-    feature_net = nn.Sequential(
-        nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
-        nn.Conv3d(32, 64, 3, padding=1), nn.BatchNorm3d(64), nn.ReLU(),
-        nn.Conv3d(64, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
-        nn.Conv3d(128, 128, 3, padding=1), nn.BatchNorm3d(128), nn.ReLU(),
-        nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
-        nn.Conv3d(128, 16, 1)
-    ).cuda()
-
     _, H, W, D = val_data_loader.dataset[0]['image_1'].shape
 
     # reinitialize feature net with novel random weights
@@ -118,6 +106,7 @@ def train(args):
 
     # proj_net = nn.Sequential(nn.BatchNorm3d(128), nn.ReLU(), nn.Conv3d(128, 128, 1)).cuda()
     proj_net = nn.Sequential(nn.Conv3d(128, 128, 1)).cuda()
+
     # initialize EMA
     ema = EMA(feature_net, 0.999)
 
