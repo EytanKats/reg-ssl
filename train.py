@@ -38,15 +38,17 @@ def train(args):
     iterations = args.num_iterations
     num_warps = args.num_warps
     reg_fac = args.reg_fac
+    use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
     use_ice = True if args.ice == 'true' else False
     use_adam = True if args.adam == 'true' else False
     do_sampling = True if args.sampling == 'true' else False
     do_augment = True if args.augment == 'true' else False
     use_ema = True if args.ema == 'true' else False
+    use_mind = True if args.use_mind == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
+    strength = args.strength
     visualize = True if args.visualize == 'true' else False
-    max_samples_num = 30
     cache_data_to_gpu = True
     training_batch_size = 2
     num_sampled_featvecs = 1000
@@ -55,6 +57,7 @@ def train(args):
     if dataset == 'abdomenctct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
+        max_samples_num = None
 
         sampling_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -77,10 +80,12 @@ def train(args):
         )
         num_labels = 14
         apply_ct_abdomen_window = True
+        apply_ct_abdomen_window_training = False
 
     elif dataset == 'radchestct':
         root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_fold0.json'
+        max_samples_num = 30
 
         sampling_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -89,8 +94,7 @@ def train(args):
             batch_size=1,
             num_workers=4,
             shuffle=False,
-            drop_last=False,
-            max_samples_num=max_samples_num
+            drop_last=False
         )
         val_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -103,6 +107,7 @@ def train(args):
         )
         num_labels = 22
         apply_ct_abdomen_window = False
+        apply_ct_abdomen_window_training = False
 
     # initialize feature net
     feature_net = nn.Sequential(
@@ -167,15 +172,23 @@ def train(args):
                            nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 16, 1)).cuda()
 
+    # proj_net = nn.Sequential(nn.BatchNorm3d(128), nn.ReLU(), nn.Conv3d(128, 128, 1)).cuda()
+    proj_net = nn.Sequential(nn.Conv3d(128, 128, 1)).cuda()
     # initialize EMA
     ema = EMA(feature_net, 0.999)
 
     # Instantiate InfoNCE loss
     info_loss = InfoNCE(temperature=info_nce_temperature)
 
-    optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=0.001)
+    # optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
     eta_min = 0.00001
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
+
+    if use_optim_with_restarts:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=eta_min)
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
+
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -189,13 +202,20 @@ def train(args):
     affine1_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
     affine2_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
 
+    if use_mind:
+        mind0 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
+        mind1 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
+        grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda().repeat(2, 1, 1), [2, 1, H//2, W//2, D//2], align_corners=False)
+
     i = 0
     stage = 0
     t0 = time.time()
     train_data_loader = None
+    update_data_loader = True
     with tqdm(total=iterations, file=sys.stdout, colour="red", ncols=200) as pbar:
         while i < iterations:
-            if i == 0 or i % 1000 == 999:
+
+            if update_data_loader:
 
                 # difficulty weighting
                 if use_adam and do_sampling:
@@ -205,18 +225,15 @@ def train(args):
                     q = torch.ones(len(sampling_data_loader))
 
                 if cache_data_to_gpu:
-                    if train_data_loader is None:
-                        train_data_loader = get_data_loader(
+                    train_data_loader = get_data_loader(
                             root_dir=root_dir,
                             data_file=data_file,
                             key='training',
                             batch_size=training_batch_size,
                             fast=True,
-                            max_samples_num=max_samples_num
+                            max_samples_num=max_samples_num,
+                            weights=q
                         )
-                        train_data_loader.weights = q
-                    else:
-                        train_data_loader.weights = q
                 else:
                     sampler = WeightedRandomSampler(q, training_batch_size, replacement=True)
                     train_data_loader = get_data_loader(
@@ -228,6 +245,8 @@ def train(args):
                         sampler=sampler,
                         max_samples_num=max_samples_num)
 
+                update_data_loader = False
+
             for data_pair in train_data_loader:
                 optimizer.zero_grad()
 
@@ -235,11 +254,19 @@ def train(args):
                 img1_ = (data_pair['image_2'] / 500).cuda()
                 indices = data_pair['idx'].numpy().tolist()
 
+                if use_mind:
+                    mind0_ = data_pair['mind_1'].cuda()
+                    mind1_ = data_pair['mind_2'].cuda()
+
                 img0_.requires_grad_(True)
                 img1_.requires_grad_(True)
 
+                if use_mind:
+                    mind0_.requires_grad_(True)
+                    mind1_.requires_grad_(True)
+
                 # apply abdomen CT window
-                if apply_ct_abdomen_window:
+                if apply_ct_abdomen_window_training:
                     with torch.no_grad():
                         for j in range(training_batch_size):
                             img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
@@ -304,6 +331,14 @@ def train(args):
                             img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
                             img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
                             target_aug[j:j + 1] = disp_field_aff
+
+                            if use_mind:
+                                h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
+                                affine1_mind = resize_with_grid_sample_3d(affine1.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                                affine2_mind = resize_with_grid_sample_3d(affine2.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+
+                                mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind[j:j + 1])
+                                mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind[j:j + 1])
                 else:
                     with torch.no_grad():
                         for j in range(training_batch_size):
@@ -316,18 +351,27 @@ def train(args):
                 img0.requires_grad_(True)
                 img1.requires_grad_(True)
 
+                if use_mind:
+                    mind0.requires_grad_(True)
+                    mind1.requires_grad_(True)
+
                 # feature extraction with feature net g
                 features_fix = feature_net(img0)
                 features_mov = feature_net(img1)
 
-                # differentiable optimization with optimizer h (coupled convex)
-                disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                if use_mind:
+                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                    mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
+                    loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
+                else:
+                    # differentiable optimization with optimizer h (coupled convex)
+                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
 
-                # consistency loss between prediction and pseudo label
-                tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8])
-                       * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-                loss = tre.mean()
-                wandb.log({"tre_loss": loss.detach().cpu().numpy()}, step=i)
+                    # consistency loss between prediction and pseudo label
+                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8]) * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                    loss = tre.mean()
+
+                wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
 
                 # apply contrastive loss
                 if apply_contrastive_loss:
@@ -338,7 +382,7 @@ def train(args):
                             min_val_1 = torch.min(img1_[j:j + 1])
 
                             disp_field = target[j:j + 1]
-                            _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
+                            _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D), strength=strength)
                             img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
                             img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
@@ -362,14 +406,18 @@ def train(args):
                                 plt.show()
                                 plt.close()
 
-                        features_fix_aug = feature_net[:-4](img0_aug)
-                        features_mov_aug = feature_net[:-4](img1_aug)
+                        features_fix_aug = proj_net(feature_net[:-4](img0_aug))
+                        features_mov_aug = proj_net(feature_net[:-4](img1_aug))
+                        # features_fix_aug = feature_net[:-4](img0_aug)
+                        # features_mov_aug = feature_net[:-4](img1_aug)
 
                     # if use_ema:
                     #     ema.apply_shadow()
 
-                    features_fix = feature_net[:-4](img0_)
-                    features_mov = feature_net[:-4](img1_)
+                    features_fix = proj_net(feature_net[:-4](img0_))
+                    features_mov = proj_net(feature_net[:-4](img1_))
+                    # features_fix = feature_net[:-4](img0_)
+                    # features_mov = feature_net[:-4](img1_)
 
                     # if use_ema:
                     #     ema.restore()
@@ -451,7 +499,7 @@ def train(args):
 
                         _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                             val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                            log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
+                            log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window, use_mind=use_mind
                         )
                         print(f'VAL_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                         print(f'VAL_SDLOGJ_TEACHER: {test_sdlogj} -> {test_sdlogj_adam}')
@@ -465,7 +513,7 @@ def train(args):
 
                     _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                         val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
+                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window, use_mind=use_mind
                     )
                     print(f'VAL_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                     print(f'VAL_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')
@@ -511,9 +559,11 @@ def train(args):
                         wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                     i += 1
+                    update_data_loader = True
                     break
 
                 feature_net.train()
+                proj_net.train()
 
                 pbar_desciprtion = f"iter: {i}, runtime: {'%0.3f' % (time.time() - t0)} sec, GPU max/memory: {'%0.2f' % (torch.cuda.max_memory_allocated() * 1e-9)} GByte"
                 pbar.set_description(pbar_desciprtion)

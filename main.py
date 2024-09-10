@@ -21,13 +21,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ckpt_path_1",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_baseline/student_stage10.pth",
+        default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_2/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_3/student_stage10.pth"],
         help="chekpoint to load",
         type=str,
     )
     parser.add_argument(
         "--ckpt_path_2",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_radchest_cl/student_stage10.pth",
+        default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_1/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_2/student_stage10.pth",
+                 "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_3/student_stage10.pth"],
         help="chekpoint to load",
         type=str,
     )
@@ -48,6 +52,11 @@ if __name__ == "__main__":
         "--num_iterations",
         default=10000,
         type=int,
+    )
+    parser.add_argument(
+        "--use_optim_with_restarts",
+        default="true",
+        type=str,
     )
     parser.add_argument(
         "--num_warps",
@@ -87,7 +96,13 @@ if __name__ == "__main__":
     # whether to use teacher-student approach during the training
     parser.add_argument(
         "--ema",
-        default="true",
+        default="false",
+        type=str,
+    )
+    # whether to use teacher-student approach during the training
+    parser.add_argument(
+        "--use_mind",
+        default="false",
         type=str,
     )
     # whether to apply contrastive loss during training
@@ -102,6 +117,12 @@ if __name__ == "__main__":
         default=0.1,
         type=float,
     )
+    # strength of affine augmentations for contrastive loss
+    parser.add_argument(
+        "--strength",
+        default=0.25,
+        type=int,
+    )
     # visualize with matplotlib
     parser.add_argument(
         "--visualize",
@@ -113,6 +134,7 @@ if __name__ == "__main__":
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     import torch
+    torch.backends.cudnn.benchmark = True
     torch.multiprocessing.set_sharing_strategy('file_system')
 
     if args.phase == 'test':

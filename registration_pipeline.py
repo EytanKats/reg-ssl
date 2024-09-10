@@ -10,10 +10,11 @@ import torch.nn.functional as F
 from coupled_convex import coupled_convex
 from eval_utils import dice_coeff, jacobian_determinant
 from adam_instance_opt import AdamReg
+from convex_adam_utils import MINDSSC
 
 
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time
-def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
+def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0, use_mind=False):
 
     # placeholders for dice scores and SDlogJ
     d_all0 = torch.empty(0, num_labels - 1)
@@ -33,6 +34,11 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
     for i, data_pair in enumerate(tqdm(data_loader)):
         with torch.cuda.amp.autocast():
             with torch.no_grad():
+
+                if use_mind:
+                    mind0 = F.avg_pool3d(MINDSSC(data_pair['image_1'].cuda(), 1, 2), 2).cuda()
+                    mind1 = F.avg_pool3d(MINDSSC(data_pair['image_2'].cuda(), 1, 2), 2).cuda()
+
                 # select image pair and segmentations
                 if clamp:
                     img0 = torch.clamp((data_pair['image_1'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
@@ -106,8 +112,12 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
                     proj = nn.Conv3d(64, 32, 1, bias=False)
                     proj.cuda()
                     # feature extraction with g and projection to 32 channels
-                    feat_fix = proj(feature_net[:6](img0))
-                    feat_mov = proj(feature_net[:6](img1_orig))
+                    if use_mind:
+                        feat_fix = mind0
+                        feat_mov = mind1
+                    else:
+                        feat_fix = proj(feature_net[:6](img0))
+                        feat_mov = proj(feature_net[:6](img1_orig))
                     # finetuning of displacement field with Adam
                     flow = AdamReg(5 * feat_fix, 5 * feat_mov, disp, reg_fac=reg_fac)
 
@@ -122,7 +132,7 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
 
                     # warp moving image and visualize central slice of warped and fixed image
                     min_1 = torch.min(img1_orig)
-                    warped_img_adam = F.grid_sample(img1_orig - min_1, grid0 + flow.permute(0, 2, 3, 4, 1), mode='nearest') + min_1
+                    warped_img_adam = F.grid_sample(img1_orig - min_1, grid0 + flow.permute(0, 2, 3, 4, 1), mode='bilinear') + min_1
                     if clamp:
                         warped_img_adam = torch.clamp(warped_img_adam, -.4, .6)
 
