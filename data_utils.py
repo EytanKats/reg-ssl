@@ -148,7 +148,7 @@ def resize_with_grid_sample_3d(tensor_to_resize, out_d, out_h, out_w):
     grid = grid.repeat(N, 1, 1, 1, 1)
 
     # Use grid_sample to sample from the tensor_to_resize at the specified locations
-    resized_tensor = F.grid_sample(tensor_to_resize, grid, mode='bilinear', align_corners=True)
+    resized_tensor = F.grid_sample(tensor_to_resize, grid, mode='bilinear', align_corners=False)
 
     return resized_tensor
 

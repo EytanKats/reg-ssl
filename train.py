@@ -186,7 +186,7 @@ def train(args):
 
                 disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
                 mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
-                loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
+                loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8])
 
                 wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
 
@@ -199,8 +199,8 @@ def train(args):
                             min_val_1 = torch.min(img1_[j:j + 1])
 
                             affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl_v2(shape=(1, 1, H, W, D), strength=strength)
-                            img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
-                            img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
+                            img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=False) + min_val_0
+                            img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=False) + min_val_1
 
                         # visualize data for contrastive loss
                         if visualize:
@@ -238,8 +238,8 @@ def train(args):
                     featvecs_aug_list = []
                     featvecs_warped_list = []
                     for j in range(training_batch_size):
-                        features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
-                        features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+                        features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=False)
+                        features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=False)
 
                         # Get locations to sample from feature masks
                         ids = torch.argwhere(torch.zeros(h, w, d) > -1)
