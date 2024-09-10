@@ -37,6 +37,7 @@ def train(args):
     # Parse arguments
     max_samples_num = args.max_samples_num
     random_samples = True if args.random_samples == 'true' else False
+    refresh_data_loader = True if args.refresh_data_loader == 'true' else False
     cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
     root_dir = os.path.join(args.base_dir, args.root_dir)
     data_file = os.path.join(args.base_dir, args.data_file)
@@ -319,10 +320,6 @@ def train(args):
                     torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
                     feature_net.cuda()
 
-                    i += 1
-                    update_data_loader = True
-                    break
-
                 feature_net.train()
                 proj_net.train()
 
@@ -331,3 +328,9 @@ def train(args):
                 pbar.update(1)
 
                 i += 1
+
+                if i % 1000 == 0 and refresh_data_loader:
+                    update_data_loader = True
+                    break
+
+

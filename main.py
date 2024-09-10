@@ -69,6 +69,12 @@ if __name__ == "__main__":
         default="false",
         type=str,
     )
+    # whether to update samples in data loader during training
+    parser.add_argument(
+        "--refresh_data_loader",
+        default="false",
+        type=str,
+    )
 
     # #####################################
     # ##### DATASET SPECIFIC SETTINGS #####
