@@ -35,9 +35,13 @@ def train(args):
         os.makedirs(out_dir)
 
     # Parse arguments
-    dataset = args.dataset
+    max_samples_num = args.max_samples_num
     random_samples = True if args.random_samples == 'true' else False
     cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
+    root_dir = os.path.join(args.base_dir, args.root_dir)
+    data_file = os.path.join(args.base_dir, args.data_file)
+    num_labels = args.num_labels
+    apply_ct_abdomen_window = True if args.apply_ct_abdomen_window == 'true' else False
 
     iterations = args.num_iterations
     training_batch_size = args.training_batch_size
@@ -52,41 +56,15 @@ def train(args):
     visualize = True if args.visualize == 'true' else False
 
     # Load validation data
-    if dataset == 'abdomenctct':
-        root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
-        data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
-        max_samples_num = None
-
-        val_data_loader = get_data_loader(
-            root_dir=root_dir,
-            data_file=data_file,
-            key='test',
-            batch_size=1,
-            num_workers=4,
-            shuffle=False,
-            drop_last=False
-        )
-        num_labels = 14
-        apply_ct_abdomen_window = True
-        apply_ct_abdomen_window_training = False
-
-    elif dataset == 'radchestct':
-        root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
-        data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_fold0.json'
-        max_samples_num = 30
-
-        val_data_loader = get_data_loader(
-            root_dir=root_dir,
-            data_file=data_file,
-            key='test',
-            batch_size=1,
-            num_workers=4,
-            shuffle=False,
-            drop_last=False
-        )
-        num_labels = 22
-        apply_ct_abdomen_window = False
-        apply_ct_abdomen_window_training = False
+    val_data_loader = get_data_loader(
+        root_dir=root_dir,
+        data_file=data_file,
+        key='test',
+        batch_size=1,
+        num_workers=4,
+        shuffle=False,
+        drop_last=False
+    )
 
     _, H, W, D = val_data_loader.dataset[0]['image_1'].shape
 

@@ -44,10 +44,12 @@ if __name__ == "__main__":
     # ##########################
     # ##### DATA SETTINGS #####
 
+    DATASET = 'radchestct'
+
     # dataset: abdomenctct, radchestct
     parser.add_argument(
         "--dataset",
-        default="radchestct",
+        default=DATASET,
         type=str,
     )
     # cache data to GPU to save training time
@@ -56,12 +58,74 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # number of samples used in training data loader
+    parser.add_argument(
+        "--max_samples_num",
+        default=128,
+        type=int
+    )
     # whether to choose random samples for training data loader
     parser.add_argument(
         "--random_samples",
         default="false",
         type=str,
     )
+
+    # #####################################
+    # ##### DATASET SPECIFIC SETTINGS #####
+
+    if DATASET == "radchestct":
+        parser.add_argument(
+            "--root_dir",
+            default="data/radchest_ct/",
+            help="directory with the data files",
+            type=str,
+        )
+        parser.add_argument(
+            "--data_file",
+            default="data/radchest_ct/radchest_ct_fold0.json",
+            help="data .json file",
+            type=str,
+        )
+        parser.add_argument(
+            "--num_labels",
+            default=22,
+            help="number of segmentation labels in dataset used to assess registration performance",
+            type=int,
+        )
+        # whether to apply ct abdomen window during validation
+        parser.add_argument(
+            "--apply_ct_abdomen_window",
+            default="false",
+            help="apply ct abdomen window during validation",
+            type=str,
+        )
+    elif DATASET == "abdomenctct":
+        parser.add_argument(
+            "--root_dir",
+            default="data/abdomen_ctct",
+            help="directory with the data files",
+            type=str,
+        )
+        parser.add_argument(
+            "--data_file",
+            default="data/abdomen_ctct/abdomen_ct_orig.json",
+            help="data .json file",
+            type=str,
+        )
+        parser.add_argument(
+            "--num_labels",
+            default=14,
+            help="number of segmentation labels in dataset used to assess registration performance",
+            type=int,
+        )
+        # whether to apply ct abdomen window during validation
+        parser.add_argument(
+            "--apply_ct_abdomen_window",
+            default="true",
+            help="apply ct abdomen window during validation",
+            type=str,
+        )
 
     # ##########################
     # ##### TEST SETTINGS #####
@@ -142,8 +206,8 @@ if __name__ == "__main__":
         type=str,
     )
 
-    # #############################
-    # ##### RUN TRAIN OR TEST #####
+    # ################################
+    # ##### RUN TRAINING OR TEST #####
 
     args = parser.parse_args()
     if args.phase == 'test':
