@@ -99,6 +99,12 @@ if __name__ == "__main__":
         default="false",
         type=str,
     )
+    # whether to use teacher-student approach during the training
+    parser.add_argument(
+        "--use_mind",
+        default="false",
+        type=str,
+    )
     # whether to apply contrastive loss during training
     parser.add_argument(
         "--contrastive",
@@ -110,6 +116,12 @@ if __name__ == "__main__":
         "--info_nce_temperature",
         default=0.1,
         type=float,
+    )
+    # strength of affine augmentations for contrastive loss
+    parser.add_argument(
+        "--strength",
+        default=0.25,
+        type=int,
     )
     # visualize with matplotlib
     parser.add_argument(
