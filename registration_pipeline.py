@@ -114,8 +114,8 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
                     proj.cuda()
 
                     # feature extraction with g and projection to 32 channels
-                    feat_fix = mind0
-                    feat_mov = mind1
+                    feat_fix = proj(feature_net[:6](img0))
+                    feat_mov = proj(feature_net[:6](img1_orig))
 
                     # finetuning of displacement field with Adam
                     flow = AdamReg(5 * feat_fix, 5 * feat_mov, disp, reg_fac=reg_fac)
