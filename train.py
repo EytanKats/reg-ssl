@@ -39,23 +39,25 @@ def train(args):
 
     # Parse arguments
     dataset = args.dataset
+    random_samples = True if args.random_samples == 'true' else False
+    cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
+
     iterations = args.num_iterations
-    num_warps = args.num_warps
+    training_batch_size = args.training_batch_size
+
     reg_fac = args.reg_fac
     use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
-    use_ice = True if args.ice == 'true' else False
-    use_adam = True if args.adam == 'true' else False
-    do_sampling = True if args.sampling == 'true' else False
     do_augment = True if args.augment == 'true' else False
     use_ema = True if args.ema == 'true' else False
     use_mind = True if args.use_mind == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
     strength = args.strength
-    visualize = True if args.visualize == 'true' else False
-    cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
-    training_batch_size = args.training_batch_size
     num_sampled_featvecs = args.num_sampled_featvecs
+
+    visualize = True if args.visualize == 'true' else False
+
+
 
     # Load validation data
     if dataset == 'abdomenctct':
@@ -63,16 +65,6 @@ def train(args):
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
         max_samples_num = None
 
-        sampling_data_loader = get_data_loader(
-            root_dir=root_dir,
-            data_file=data_file,
-            key='training',
-            batch_size=1,
-            num_workers=4,
-            shuffle=False,
-            drop_last=False,
-            max_samples_num=max_samples_num
-        )
         val_data_loader = get_data_loader(
             root_dir=root_dir,
             data_file=data_file,
@@ -91,15 +83,6 @@ def train(args):
         data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_fold0.json'
         max_samples_num = 30
 
-        sampling_data_loader = get_data_loader(
-            root_dir=root_dir,
-            data_file=data_file,
-            key='training',
-            batch_size=1,
-            num_workers=4,
-            shuffle=False,
-            drop_last=False
-        )
         val_data_loader = get_data_loader(
             root_dir=root_dir,
             data_file=data_file,
@@ -124,49 +107,6 @@ def train(args):
     ).cuda()
 
     _, H, W, D = val_data_loader.dataset[0]['image_1'].shape
-
-    # generate initial pseudo labels with random features
-    if do_sampling:
-
-        # w/o Adam finetuning
-        all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(
-            sampling_data_loader,
-            feature_net,
-            use_adam=False,
-            num_warps=num_warps,
-            ice=use_ice,
-            reg_fac=reg_fac,
-            num_labels=num_labels,
-            clamp=apply_ct_abdomen_window
-        )
-
-        # w Adam finetuning
-        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(
-            sampling_data_loader,
-            feature_net,
-            use_adam=True,
-            num_warps=num_warps,
-            ice=use_ice,
-            reg_fac=reg_fac,
-            compute_jacobian=True,
-            num_labels=num_labels,
-            clamp=apply_ct_abdomen_window
-        )
-
-        # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
-        with torch.no_grad():
-            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
-                        * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-            tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
-
-        print(f'TRAIN_DICE: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
-        print(f'TRAIN_SDLOGJ: {sdlogj} -> {sdlogj_adam}')
-
-        # Log metrics to wandb
-        wandb.log({"train_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=0)
-        wandb.log({"train_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=0)
-        wandb.log({"train_sdlogj_wo_adam": sdlogj}, step=0)
-        wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=0)
 
     # reinitialize feature net with novel random weights
     feature_net = nn.Sequential(nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
@@ -220,35 +160,15 @@ def train(args):
         while i < iterations:
 
             if update_data_loader:
-
-                # difficulty weighting
-                if use_adam and do_sampling:
-                    q = torch.zeros(len(sampling_data_loader))
-                    q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(sampling_data_loader)))
-                else:
-                    q = torch.ones(len(sampling_data_loader))
-
-                if cache_data_to_gpu:
-                    train_data_loader = get_data_loader(
-                            root_dir=root_dir,
-                            data_file=data_file,
-                            key='training',
-                            batch_size=training_batch_size,
-                            fast=True,
-                            max_samples_num=max_samples_num,
-                            weights=q
-                        )
-                else:
-                    sampler = WeightedRandomSampler(q, training_batch_size, replacement=True)
-                    train_data_loader = get_data_loader(
+                train_data_loader = get_data_loader(
                         root_dir=root_dir,
                         data_file=data_file,
                         key='training',
                         batch_size=training_batch_size,
-                        num_workers=8,
-                        sampler=sampler,
-                        max_samples_num=max_samples_num)
-
+                        fast=cache_data_to_gpu,
+                        max_samples_num=max_samples_num,
+                        random_samples=random_samples
+                    )
                 update_data_loader = False
 
             for data_pair in train_data_loader:
@@ -539,28 +459,6 @@ def train(args):
 
                     torch.save(feature_net.cpu(), os.path.join(out_dir, 'student_stage' + str(stage) + '.pth'))
                     feature_net.cuda()
-
-                    if do_sampling:
-                        #  recompute pseudo-labels with current model weights
-                        # w/o Adam finetuning
-                        all_fields_noadam, d_all_net, d_all0, _, _, _, _ = update_fields(sampling_data_loader, feature_net, use_adam=False, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, num_labels=num_labels, clamp=apply_ct_abdomen_window)
-                        # w Adam finetuning
-                        all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(sampling_data_loader, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window)
-
-                    # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
-                        with torch.no_grad():
-                            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
-                                        * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-                            tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
-
-                        print(f'TRAIN_DICE: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
-                        print(f'TRAIN_SDLOGJ: {sdlogj} -> {sdlogj_adam}')
-
-                        # Log metrics to wandb
-                        wandb.log({"train_dice_wo_adam_finetuing": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=i)
-                        wandb.log({"train_dice_with_adam_finetuing": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=i)
-                        wandb.log({"train_sdlogj_wo_adam": sdlogj}, step=i)
-                        wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                     i += 1
                     update_data_loader = True

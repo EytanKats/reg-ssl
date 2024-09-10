@@ -1,6 +1,7 @@
 import os
 import json
 import monai
+import random
 import nibabel as nib
 
 from tqdm import tqdm
@@ -42,7 +43,7 @@ def read_json_data_file(
 
 
 class GPUCacheDataset(IterableDataset):
-    def __init__(self, data_list, batch_size, weights):
+    def __init__(self, data_list, batch_size):
         self.data_list = data_list
         self.batch_size = batch_size
 
@@ -66,7 +67,7 @@ class GPUCacheDataset(IterableDataset):
                 self.images_cache[data_pair['image_2']] = torch.tensor(nib.load(data_pair['image_2']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
                 self.mind_cache[data_pair['image_2']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_2']].cuda(), 1, 2), 2).cpu()
 
-        self.weights = weights
+        self.weights = torch.ones(len(data_list))
 
     def generate(self):
         while True:
@@ -93,23 +94,21 @@ def get_data_loader(
         num_workers=8,
         shuffle=False,
         drop_last=False,
-        sampler=None,
         fast=False,
         max_samples_num=None,
-        weights=None
+        random_samples=False,
 ):
 
     data_list = read_json_data_file(data_file_path=data_file, data_dir=root_dir, keys=[key])[0]
 
-    if max_samples_num is not None and weights is not None:
-        indices = list(WeightedRandomSampler(weights, max_samples_num, replacement=True))
+    if max_samples_num is not None and random_samples:
+        indices = random.sample(range(0, len(data_list) - 1), max_samples_num)
         data_list = [data_list[idx] for idx in indices]
-        weights = [weights[idx] for idx in indices]
     elif max_samples_num is not None:
         data_list = data_list[:max_samples_num]
 
     if fast:
-        data_loader = GPUCacheDataset(data_list=data_list, batch_size=batch_size, weights=weights)
+        data_loader = GPUCacheDataset(data_list=data_list, batch_size=batch_size)
     else:
 
         radchestct_transform = monai.transforms.Compose(
@@ -124,7 +123,6 @@ def get_data_loader(
         data_loader = monai.data.DataLoader(
             dataset=ds,
             batch_size=batch_size,
-            sampler=sampler,
             shuffle=shuffle,
             drop_last=drop_last,
             num_workers=num_workers,

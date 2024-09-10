@@ -56,6 +56,12 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to choose random samples for training data loader
+    parser.add_argument(
+        "--random_samples",
+        default="false",
+        type=str,
+    )
 
     # ##########################
     # ##### TEST SETTINGS #####
@@ -95,34 +101,11 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    parser.add_argument(
-        "--num_warps",
-        default=2,
-        type=int,
-    )
-    # whether to use inverse consistence
-    parser.add_argument(
-        "--ice",
-        default="true",
-        type=str,
-    )
     # regularization weight in Adam optimization during training
     parser.add_argument(
         "--reg_fac",
         default=1.,
         type=float,
-    )
-    # whether to perform difficulty-weighted data sampling during training
-    parser.add_argument(
-        "--sampling",
-        default="true",
-        type=str,
-    )
-    # whether to finetune pseudo labels with Adam instance optimization during training
-    parser.add_argument(
-        "--adam",
-        default="true",
-        type=str,
     )
     # whether to use affine input augmentations during training
     parser.add_argument(
