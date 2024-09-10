@@ -107,12 +107,6 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    # whether to use mind loss
-    parser.add_argument(
-        "--use_mind",
-        default="false",
-        type=str,
-    )
     # whether to apply contrastive loss during training
     parser.add_argument(
         "--contrastive",

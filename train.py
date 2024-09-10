@@ -44,7 +44,6 @@ def train(args):
 
     use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
     do_augment = True if args.augment == 'true' else False
-    use_mind = True if args.use_mind == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
     info_nce_temperature = args.info_nce_temperature
     strength = args.strength
@@ -124,11 +123,10 @@ def train(args):
     affine2 = torch.zeros(training_batch_size, H, W, D, 3).cuda()
     affine1_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
     affine2_aug = torch.zeros(training_batch_size, H, W, D, 3).cuda()
+    mind0 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
+    mind1 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
 
-    if use_mind:
-        mind0 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
-        mind1 = torch.zeros(training_batch_size, 12, H//2, W//2, D//2).cuda()
-        grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda().repeat(2, 1, 1), [2, 1, H//2, W//2, D//2], align_corners=False)
+    grid0 = F.affine_grid(torch.eye(3, 4).unsqueeze(0).cuda().repeat(2, 1, 1), [2, 1, H//2, W//2, D//2], align_corners=False)
 
     i = 0
     stage = 0
@@ -155,25 +153,13 @@ def train(args):
 
                 img0_ = (data_pair['image_1'] / 500).cuda()
                 img1_ = (data_pair['image_2'] / 500).cuda()
-                indices = data_pair['idx'].numpy().tolist()
-
-                if use_mind:
-                    mind0_ = data_pair['mind_1'].cuda()
-                    mind1_ = data_pair['mind_2'].cuda()
+                mind0_ = data_pair['mind_1'].cuda()
+                mind1_ = data_pair['mind_2'].cuda()
 
                 img0_.requires_grad_(True)
                 img1_.requires_grad_(True)
-
-                if use_mind:
-                    mind0_.requires_grad_(True)
-                    mind1_.requires_grad_(True)
-
-                # apply abdomen CT window
-                if apply_ct_abdomen_window_training:
-                    with torch.no_grad():
-                        for j in range(training_batch_size):
-                            img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
-                            img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
+                mind0_.requires_grad_(True)
+                mind1_.requires_grad_(True)
 
                 # visualize input data
                 if visualize:
@@ -205,13 +191,12 @@ def train(args):
                             img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
                             img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
 
-                            if use_mind:
-                                h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
-                                affine1_mind = resize_with_grid_sample_3d(affine1.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                                affine2_mind = resize_with_grid_sample_3d(affine2.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                            h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
+                            affine1_mind = resize_with_grid_sample_3d(affine1.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                            affine2_mind = resize_with_grid_sample_3d(affine2.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
-                                mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind[j:j + 1])
-                                mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind[j:j + 1])
+                            mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind[j:j + 1])
+                            mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind[j:j + 1])
                 else:
                     with torch.no_grad():
                         for j in range(training_batch_size):
@@ -221,19 +206,16 @@ def train(args):
 
                 img0.requires_grad_(True)
                 img1.requires_grad_(True)
-
-                if use_mind:
-                    mind0.requires_grad_(True)
-                    mind1.requires_grad_(True)
+                mind0.requires_grad_(True)
+                mind1.requires_grad_(True)
 
                 # feature extraction with feature net g
                 features_fix = feature_net(img0)
                 features_mov = feature_net(img1)
 
-                if use_mind:
-                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
-                    mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
-                    loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
+                disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
+                loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
 
                 wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
 
@@ -350,7 +332,7 @@ def train(args):
 
                     _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
                         val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
-                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window, use_mind=use_mind
+                        log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window
                     )
                     print(f'VAL_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
                     print(f'VAL_SDLOGJ_STUDENT: {test_sdlogj} -> {test_sdlogj_adam}')

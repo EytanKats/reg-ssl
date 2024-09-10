@@ -14,7 +14,7 @@ from convex_adam_utils import MINDSSC
 
 
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time
-def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0, use_mind=False):
+def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_warps=1, compute_jacobian=False, ice=False, reg_fac=1., log_to_wandb=False, iteration=0):
 
     # placeholders for dice scores and SDlogJ
     d_all0 = torch.empty(0, num_labels - 1)
@@ -35,17 +35,17 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
         with torch.cuda.amp.autocast():
             with torch.no_grad():
 
-                if use_mind:
-                    mind0 = F.avg_pool3d(MINDSSC(data_pair['image_1'].cuda(), 1, 2), 2).cuda()
-                    mind1 = F.avg_pool3d(MINDSSC(data_pair['image_2'].cuda(), 1, 2), 2).cuda()
+                mind0 = F.avg_pool3d(MINDSSC(data_pair['image_1'].cuda(), 1, 2), 2).cuda()
+                mind1 = F.avg_pool3d(MINDSSC(data_pair['image_2'].cuda(), 1, 2), 2).cuda()
 
                 # select image pair and segmentations
                 if clamp:
-                    img0 = torch.clamp((data_pair['image_1'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
-                    img1 = torch.clamp((data_pair['image_2'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
+                    img0 = torch.clamp((data_pair['image_1'] / 500).cuda(), -.4, .6)
+                    img1 = torch.clamp((data_pair['image_2'] / 500).cuda(), -.4, .6)
                 else:
                     img0 = (data_pair['image_1'] / 500).cuda()
                     img1 = (data_pair['image_2'] / 500).cuda()
+
                 img1_orig = img1.clone()
                 fixed_seg = data_pair['seg_1'].cuda().squeeze(0)
                 moving_seg = data_pair['seg_2'].cuda().squeeze(0)
@@ -108,16 +108,15 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
             if use_adam:
                 # instance optimization with Adam
                 with torch.no_grad():
+
                     # random projection network
                     proj = nn.Conv3d(64, 32, 1, bias=False)
                     proj.cuda()
+
                     # feature extraction with g and projection to 32 channels
-                    if use_mind:
-                        feat_fix = mind0
-                        feat_mov = mind1
-                    else:
-                        feat_fix = proj(feature_net[:6](img0))
-                        feat_mov = proj(feature_net[:6](img1_orig))
+                    feat_fix = mind0
+                    feat_mov = mind1
+
                     # finetuning of displacement field with Adam
                     flow = AdamReg(5 * feat_fix, 5 * feat_mov, disp, reg_fac=reg_fac)
 
