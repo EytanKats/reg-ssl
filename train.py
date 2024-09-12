@@ -13,7 +13,8 @@ from torch.utils.data import WeightedRandomSampler
 from ema import EMA
 from info_nce import InfoNCE
 from adam_instance_opt import AdamReg
-from data_utils import augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
+from data_utils import augment_affine_nl, resize_with_grid_sample_3d
+from augmentations_utils import nonlinear_transformation
 from dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
@@ -46,6 +47,8 @@ def train(args):
     use_ema = True if args.ema == 'true' else False
     use_mind = True if args.use_mind == 'true' else False
     apply_contrastive_loss = True if args.contrastive == 'true' else False
+    use_intensity_aug_for_cl = True
+    use_geometric_aug_for_cl = True
     info_nce_temperature = args.info_nce_temperature
     strength = args.strength
     visualize = True if args.visualize == 'true' else False
@@ -188,7 +191,6 @@ def train(args):
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=eta_min)
     else:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
-
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -384,13 +386,19 @@ def train(args):
 
                     with torch.no_grad():
                         for j in range(training_batch_size):
-                            min_val_0 = torch.min(img0_[j:j + 1])
-                            min_val_1 = torch.min(img1_[j:j + 1])
 
-                            disp_field = target[j:j + 1]
-                            _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D), strength=strength)
-                            img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
-                            img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
+                            if use_intensity_aug_for_cl:
+                                img0_aug[j, 0] = torch.tensor(nonlinear_transformation(img0_[j, 0, ...].view(-1))).cuda().view(H, W, D).unsqueeze(0)
+                                img1_aug[j, 0] = torch.tensor(nonlinear_transformation(img1_[j, 0, ...].view(-1))).cuda().view(H, W, D).unsqueeze(0)
+
+                            if use_geometric_aug_for_cl:
+                                min_val_0 = torch.min(img0_[j:j + 1])
+                                min_val_1 = torch.min(img1_[j:j + 1])
+
+                                disp_field = target[j:j + 1]
+                                _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D), strength=strength)
+                                img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
+                                img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
                         # visualize data for contrastive loss
                         if visualize:
@@ -414,32 +422,28 @@ def train(args):
 
                         features_fix_aug = proj_net(feature_net[:-4](img0_aug))
                         features_mov_aug = proj_net(feature_net[:-4](img1_aug))
-                        # features_fix_aug = feature_net[:-4](img0_aug)
-                        # features_mov_aug = feature_net[:-4](img1_aug)
-
-                    # if use_ema:
-                    #     ema.apply_shadow()
 
                     features_fix = proj_net(feature_net[:-4](img0_))
                     features_mov = proj_net(feature_net[:-4](img1_))
-                    # features_fix = feature_net[:-4](img0_)
-                    # features_mov = feature_net[:-4](img1_)
-
-                    # if use_ema:
-                    #     ema.restore()
 
                     features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
                     features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
 
                     h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
-                    affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                    affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                    if use_geometric_aug_for_cl:
+                        affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                        affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
                     featvecs_aug_list = []
                     featvecs_warped_list = []
                     for j in range(training_batch_size):
-                        features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
-                        features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+
+                        if use_geometric_aug_for_cl:
+                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
+                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+                        elif use_intensity_aug_for_cl:
+                            features_fix_warped[j:j + 1] = features_fix[j:j + 1]
+                            features_mov_warped[j:j + 1] = features_mov[j:j + 1]
 
                         # Get locations to sample from feature masks
                         ids = torch.argwhere(torch.zeros(h, w, d) > -1)
