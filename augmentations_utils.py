@@ -4,6 +4,8 @@ from scipy.special import comb
 import torch
 import torch.nn.functional as F
 
+from interp import interp1d
+
 def get_rf_field(
     num_batch, size_3d, interpolation_factor=4, num_fields=4, device="cpu"
 ):
