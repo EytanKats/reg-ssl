@@ -250,8 +250,8 @@ def train(args):
             for data_pair in train_data_loader:
                 optimizer.zero_grad()
 
-                img0_ = (data_pair['image_1'] / 500).cuda()
-                img1_ = (data_pair['image_2'] / 500).cuda()
+                # img0_ = (data_pair['image_1'] / 500).cuda()
+                # img1_ = (data_pair['image_2'] / 500).cuda()
                 indices = data_pair['idx'].numpy().tolist()
 
                 if use_mind:
