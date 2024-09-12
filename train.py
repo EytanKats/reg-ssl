@@ -258,6 +258,12 @@ def train(args):
                     mind0_ = data_pair['mind_1'].cuda()
                     mind1_ = data_pair['mind_2'].cuda()
 
+                img0_ = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+                img1_ = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+                for j in range(training_batch_size):
+                    img0_[j:j + 1] = ((data_pair['image_1'][j:j + 1] - torch.min(data_pair['image_1'][j:j + 1])) / (torch.max(data_pair['image_1'][j:j + 1]) - torch.min(data_pair['image_1'][j:j + 1]))).cuda()
+                    img1_[j:j + 1] = ((data_pair['image_2'][j:j + 1] - torch.min(data_pair['image_2'][j:j + 1])) / (torch.max(data_pair['image_2'][j:j + 1]) - torch.min(data_pair['image_2'][j:j + 1]))).cuda()
+
                 img0_.requires_grad_(True)
                 img1_.requires_grad_(True)
 
