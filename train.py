@@ -30,7 +30,7 @@ def train(args):
     )
 
     # Create output directory
-    out_dir = args.out_dir
+    out_dir = os.path.join(args.base_dir, args.out_dir)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
