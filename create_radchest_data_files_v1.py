@@ -32,10 +32,10 @@ IMAGE_DIR = f'imgs'
 MASK_DIR = f'lbls_ts'
 PAIRS = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/list_of_pairs.pth'
 
-OUTPUT_FILE_PATH_TEMPLATE = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct'
+OUTPUT_FILE_PATH_TEMPLATE = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_5'
 
-NUM_SPLITS = 8
-NUM_VAL_IMAGES = 20
+NUM_SPLITS = 5
+NUM_VAL_IMAGES = 50
 
 # Get list of pairs
 pairs = torch.load(os.path.join(PAIRS))

@@ -44,8 +44,9 @@ def update_fields(data_loader, feature_net, use_adam, num_labels, clamp, num_war
                     img0 = torch.clamp((data_pair['image_1'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
                     img1 = torch.clamp((data_pair['image_2'] / 500).cuda(), -.4, .6)  # .repeat(1,2,1,1,1)
                 else:
-                    img0 = (data_pair['image_1'] / 500).cuda()
-                    img1 = (data_pair['image_2'] / 500).cuda()
+                    img0 = ((data_pair['image_1'] - torch.min(data_pair['image_1'])) / (torch.max(data_pair['image_1']) - torch.min(data_pair['image_1']))).cuda()
+                    img1 = ((data_pair['image_2'] - torch.min(data_pair['image_2'])) / (torch.max(data_pair['image_2']) - torch.min(data_pair['image_2']))).cuda()
+
                 img1_orig = img1.clone()
                 fixed_seg = data_pair['seg_1'].cuda().squeeze(0)
                 moving_seg = data_pair['seg_2'].cuda().squeeze(0)

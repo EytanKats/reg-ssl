@@ -77,6 +77,19 @@ def prepare_radchest_data(data_split):
     return data
 
 
+def augment_affine_nl_v2(shape, strength=.05):
+    A1 = (torch.randn(1, 4, 4) * strength * 1.5 + torch.eye(4, 4).unsqueeze(0)).cuda()
+    A1[:, 3, :3] = 0
+    A2 = (torch.randn(1, 4, 4) * strength + torch.eye(4, 4).unsqueeze(0)).cuda()
+    A2[:, 3, :3] = 0
+    A2 = A2.matmul(A1)
+
+    affine1 = F.affine_grid(A1[:, :3], shape)
+    affine2 = F.affine_grid(A2[:, :3], shape)
+
+    return affine1, affine2
+
+
 # affine augmentation during training
 def augment_affine_nl(disp_field2, shape, strength=.05):
     field_lr = F.interpolate(disp_field2, scale_factor=0.5, mode='trilinear')
@@ -135,7 +148,7 @@ def resize_with_grid_sample_3d(tensor_to_resize, out_d, out_h, out_w):
     grid = grid.repeat(N, 1, 1, 1, 1)
 
     # Use grid_sample to sample from the tensor_to_resize at the specified locations
-    resized_tensor = F.grid_sample(tensor_to_resize, grid, mode='bilinear', align_corners=True)
+    resized_tensor = F.grid_sample(tensor_to_resize, grid, mode='bilinear', align_corners=False)
 
     return resized_tensor
 

@@ -13,7 +13,8 @@ from torch.utils.data import WeightedRandomSampler
 from ema import EMA
 from info_nce import InfoNCE
 from adam_instance_opt import AdamReg
-from data_utils import augment_affine_nl, resize_with_grid_sample_3d, get_rand_affine
+from data_utils import augment_affine_nl, resize_with_grid_sample_3d
+from augmentations_utils import nonlinear_transformation
 from dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
 from coupled_convex import coupled_convex
@@ -29,35 +30,46 @@ def train(args):
     )
 
     # Create output directory
-    out_dir = args.out_dir
+    out_dir = os.path.join(args.base_dir, args.out_dir)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
     # Parse arguments
     dataset = args.dataset
+    root_dir = os.path.join(args.base_dir, args.root_dir)
+    data_file = os.path.join(args.base_dir, args.data_file)
+    max_samples_num = args.max_samples_num
+    num_labels = args.num_labels
+    apply_ct_abdomen_window = True if args.apply_ct_abdomen_window == 'true' else False
+
+
     iterations = args.num_iterations
+    training_batch_size = args.training_batch_size
     num_warps = args.num_warps
     reg_fac = args.reg_fac
     use_optim_with_restarts = True if args.use_optim_with_restarts == 'true' else False
+    learning_rate = args.learning_rate
+    min_learning_rate = args.min_learning_rate
     use_ice = True if args.ice == 'true' else False
     use_adam = True if args.adam == 'true' else False
     do_sampling = True if args.sampling == 'true' else False
     do_augment = True if args.augment == 'true' else False
     use_ema = True if args.ema == 'true' else False
     use_mind = True if args.use_mind == 'true' else False
+
     apply_contrastive_loss = True if args.contrastive == 'true' else False
-    info_nce_temperature = args.info_nce_temperature
+    cl_coeff = args.cl_coeff
     strength = args.strength
+    info_nce_temperature = args.info_nce_temperature
+    num_sampled_featvecs = args.num_sampled_featvecs
+    use_intensity_aug_for_cl = True if args.intensity == 'true' else False
+    use_geometric_aug_for_cl = True if args.geometric == 'true' else False
+
+    cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
     visualize = True if args.visualize == 'true' else False
-    cache_data_to_gpu = True
-    training_batch_size = 2
-    num_sampled_featvecs = 1000
 
     # Loading data (segmentations only used for validation after each stage)
     if dataset == 'abdomenctct':
-        root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
-        data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct_orig.json'
-        max_samples_num = None
 
         sampling_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -66,8 +78,7 @@ def train(args):
             batch_size=1,
             num_workers=4,
             shuffle=False,
-            drop_last=False,
-            max_samples_num=max_samples_num
+            drop_last=False
         )
         val_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -83,9 +94,6 @@ def train(args):
         apply_ct_abdomen_window_training = False
 
     elif dataset == 'radchestct':
-        root_dir = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
-        data_file = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_fold0.json'
-        max_samples_num = 30
 
         sampling_data_loader = get_data_loader(
             root_dir=root_dir,
@@ -99,7 +107,7 @@ def train(args):
         val_data_loader = get_data_loader(
             root_dir=root_dir,
             data_file=data_file,
-            key='test',
+            key='validation',
             batch_size=1,
             num_workers=4,
             shuffle=False,
@@ -151,8 +159,8 @@ def train(args):
 
         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
         with torch.no_grad():
-            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
-                        * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8] - all_fields[:, :, 8:-8, 8:-8, 8:-8])
+                        * torch.tensor([D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
             tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
         print(f'TRAIN_DICE: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
@@ -172,23 +180,20 @@ def train(args):
                            nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 16, 1)).cuda()
 
-    # proj_net = nn.Sequential(nn.BatchNorm3d(128), nn.ReLU(), nn.Conv3d(128, 128, 1)).cuda()
     proj_net = nn.Sequential(nn.Conv3d(128, 128, 1)).cuda()
+
     # initialize EMA
     ema = EMA(feature_net, 0.999)
 
     # Instantiate InfoNCE loss
     info_loss = InfoNCE(temperature=info_nce_temperature)
 
-    optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=0.001)
-    # optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
-    eta_min = 0.00001
+    optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=learning_rate)
 
     if use_optim_with_restarts:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=eta_min)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 1000, 1, eta_min=min_learning_rate)
     else:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=eta_min)
-
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=min_learning_rate)
 
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -218,11 +223,11 @@ def train(args):
             if update_data_loader:
 
                 # difficulty weighting
-                if use_adam and do_sampling:
-                    q = torch.zeros(len(sampling_data_loader))
-                    q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(sampling_data_loader)))
-                else:
-                    q = torch.ones(len(sampling_data_loader))
+                # if use_adam and do_sampling:
+                #     q = torch.zeros(len(sampling_data_loader))
+                #     q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(sampling_data_loader)))
+                # else:
+                q = torch.ones(len(sampling_data_loader))
 
                 if cache_data_to_gpu:
                     train_data_loader = get_data_loader(
@@ -250,13 +255,19 @@ def train(args):
             for data_pair in train_data_loader:
                 optimizer.zero_grad()
 
-                img0_ = (data_pair['image_1'] / 500).cuda()
-                img1_ = (data_pair['image_2'] / 500).cuda()
+                # img0_ = (data_pair['image_1'] / 500).cuda()
+                # img1_ = (data_pair['image_2'] / 500).cuda()
                 indices = data_pair['idx'].numpy().tolist()
 
                 if use_mind:
                     mind0_ = data_pair['mind_1'].cuda()
                     mind1_ = data_pair['mind_2'].cuda()
+
+                img0_ = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+                img1_ = torch.zeros(training_batch_size, 1, H, W, D).cuda()
+                for j in range(training_batch_size):
+                    img0_[j:j + 1] = ((data_pair['image_1'][j:j + 1] - torch.min(data_pair['image_1'][j:j + 1])) / (torch.max(data_pair['image_1'][j:j + 1]) - torch.min(data_pair['image_1'][j:j + 1]))).cuda()
+                    img1_[j:j + 1] = ((data_pair['image_2'][j:j + 1] - torch.min(data_pair['image_2'][j:j + 1])) / (torch.max(data_pair['image_2'][j:j + 1]) - torch.min(data_pair['image_2'][j:j + 1]))).cuda()
 
                 img0_.requires_grad_(True)
                 img1_.requires_grad_(True)
@@ -378,13 +389,22 @@ def train(args):
 
                     with torch.no_grad():
                         for j in range(training_batch_size):
-                            min_val_0 = torch.min(img0_[j:j + 1])
-                            min_val_1 = torch.min(img1_[j:j + 1])
 
-                            disp_field = target[j:j + 1]
-                            _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D), strength=strength)
-                            img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
-                            img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
+                            if use_intensity_aug_for_cl:
+                                img0_aug[j, 0] = torch.tensor(nonlinear_transformation(img0_[j, 0, ...].view(-1))).cuda().view(H, W, D).unsqueeze(0)
+                                img1_aug[j, 0] = torch.tensor(nonlinear_transformation(img1_[j, 0, ...].view(-1))).cuda().view(H, W, D).unsqueeze(0)
+                            else:
+                                img0_aug[j, 0] = img0_[j, 0]
+                                img1_aug[j, 0] = img1_[j, 0]
+
+                            if use_geometric_aug_for_cl:
+                                min_val_0 = torch.min(img0_aug[j:j + 1])
+                                min_val_1 = torch.min(img1_aug[j:j + 1])
+
+                                disp_field = target[j:j + 1]
+                                _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D), strength=strength)
+                                img0_aug[j:j + 1] = F.grid_sample(img0_aug[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
+                                img1_aug[j:j + 1] = F.grid_sample(img1_aug[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
                         # visualize data for contrastive loss
                         if visualize:
@@ -408,32 +428,28 @@ def train(args):
 
                         features_fix_aug = proj_net(feature_net[:-4](img0_aug))
                         features_mov_aug = proj_net(feature_net[:-4](img1_aug))
-                        # features_fix_aug = feature_net[:-4](img0_aug)
-                        # features_mov_aug = feature_net[:-4](img1_aug)
-
-                    # if use_ema:
-                    #     ema.apply_shadow()
 
                     features_fix = proj_net(feature_net[:-4](img0_))
                     features_mov = proj_net(feature_net[:-4](img1_))
-                    # features_fix = feature_net[:-4](img0_)
-                    # features_mov = feature_net[:-4](img1_)
-
-                    # if use_ema:
-                    #     ema.restore()
 
                     features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
                     features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
 
                     h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
-                    affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                    affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                    if use_geometric_aug_for_cl:
+                        affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                        affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
                     featvecs_aug_list = []
                     featvecs_warped_list = []
                     for j in range(training_batch_size):
-                        features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
-                        features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+
+                        if use_geometric_aug_for_cl:
+                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
+                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+                        elif use_intensity_aug_for_cl:
+                            features_fix_warped[j:j + 1] = features_fix[j:j + 1]
+                            features_mov_warped[j:j + 1] = features_mov[j:j + 1]
 
                         # Get locations to sample from feature masks
                         ids = torch.argwhere(torch.zeros(h, w, d) > -1)
@@ -472,7 +488,6 @@ def train(args):
                             plt.show()
                             plt.close()
 
-                    cl_coeff = 1.
                     cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
                     wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
                     loss = cl_coeff * cl_loss + loss
@@ -545,8 +560,8 @@ def train(args):
 
                     # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
                         with torch.no_grad():
-                            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8, 8:-8].cuda())
-                                        * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                            tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8] - all_fields[:, :, 8:-8, 8:-8, 8:-8])
+                                        * torch.tensor([D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                             tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
                         print(f'TRAIN_DICE: {d_all0.sum() / (d_all_ident > 0.1).sum()} -> {d_all_net.sum() / (d_all_ident > 0.1).sum()} -> {d_all_adam.sum() / (d_all_ident > 0.1).sum()}')
@@ -559,7 +574,7 @@ def train(args):
                         wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                     i += 1
-                    update_data_loader = True
+                    # update_data_loader = True
                     break
 
                 feature_net.train()
