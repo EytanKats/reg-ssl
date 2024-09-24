@@ -4,6 +4,8 @@ from scipy.special import comb
 import torch
 import torch.nn.functional as F
 
+from interp import interp1d
+
 def get_rf_field(
     num_batch, size_3d, interpolation_factor=4, num_fields=4, device="cpu"
 ):
@@ -189,11 +191,10 @@ def bezier_curve(points, nTimes=1000):
 def nonlinear_transformation(x, prob=0.5):
     if np.random.random() >= prob:
         return x
+
     points = [[0, 0], [np.random.random(), np.random.random()], [np.random.random(), np.random.random()], [1, 1]]
-
     xvals, yvals = bezier_curve(points, nTimes=100000)
-
     xvals, yvals = np.sort(xvals), np.sort(yvals)
-    nonlinear_x = np.interp(x, xvals, yvals)
+    nonlinear_x = interp1d(torch.tensor(xvals).cuda(), torch.tensor(yvals).cuda(), x)
     return nonlinear_x
 
