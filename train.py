@@ -15,7 +15,7 @@ from core.info_nce import InfoNCE
 from core.adam_instance_opt import AdamReg
 from core.data_utils import augment_affine_nl, resize_with_grid_sample_3d
 from core.augmentations_utils import nonlinear_transformation
-from blocks.dataloader_radchestct import get_data_loader
+from dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
 from core.coupled_convex import coupled_convex
 
