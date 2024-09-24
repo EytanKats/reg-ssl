@@ -7,10 +7,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from coupled_convex import coupled_convex
-from eval_utils import dice_coeff, jacobian_determinant
-from adam_instance_opt import AdamReg
-from convex_adam_utils import MINDSSC
+from core.coupled_convex import coupled_convex
+from core.eval_utils import dice_coeff, jacobian_determinant
+from core.adam_instance_opt import AdamReg
+from core.convex_adam_utils import MINDSSC
 
 
 # compute displacement fields with current model and evaluate Dice score: called after each stage and at test time

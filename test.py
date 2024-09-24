@@ -1,7 +1,7 @@
 import torch
 from scipy.stats import wilcoxon
 
-from dataloader_radchestct import get_data_loader
+from blocks.dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
 
 

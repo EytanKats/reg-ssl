@@ -10,14 +10,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import WeightedRandomSampler
 
-from ema import EMA
-from info_nce import InfoNCE
-from adam_instance_opt import AdamReg
-from data_utils import augment_affine_nl, resize_with_grid_sample_3d
-from augmentations_utils import nonlinear_transformation
-from dataloader_radchestct import get_data_loader
+from core.ema import EMA
+from core.info_nce import InfoNCE
+from core.adam_instance_opt import AdamReg
+from core.data_utils import augment_affine_nl, resize_with_grid_sample_3d
+from core.augmentations_utils import nonlinear_transformation
+from blocks.dataloader_radchestct import get_data_loader
 from registration_pipeline import update_fields
-from coupled_convex import coupled_convex
+from core.coupled_convex import coupled_convex
 
 
 def train(args):

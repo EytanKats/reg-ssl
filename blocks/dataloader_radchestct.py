@@ -1,18 +1,12 @@
 import os
 import json
 import monai
-import random
 import nibabel as nib
 
 from tqdm import tqdm
 
 import torch
-import torch.nn.functional as F
 from torch.utils.data import IterableDataset, WeightedRandomSampler
-
-from convex_adam_utils import MINDSSC
-from data_utils import resize_with_grid_sample_3d
-
 
 KEYS = ['image_1', 'image_2', 'seg_1', 'seg_2']
 
@@ -44,7 +38,7 @@ def read_json_data_file(
 
 
 class GPUCacheDataset(IterableDataset):
-    def __init__(self, data_list, batch_size):
+    def __init__(self, data_list, batch_size, weights):
         self.data_list = data_list
         self.batch_size = batch_size
 
@@ -61,16 +55,18 @@ class GPUCacheDataset(IterableDataset):
             )
 
             if data_pair['image_1'] not in self.images_cache:
-                self.images_cache[data_pair['image_1']] = torch.tensor(nib.load(data_pair['image_1']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
-                self.images_cache[data_pair['image_1']] = resize_with_grid_sample_3d(self.images_cache[data_pair['image_1']], 192, 192, 160)
-                self.mind_cache[data_pair['image_1']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_1']].cuda(), 1, 2), 2).cpu()
+                self.images_cache[data_pair['image_1']] = torch.tensor(nib.load(data_pair['image_1']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0)
+                # self.images_cache[data_pair['image_1']] = resize_with_grid_sample_3d(self.images_cache[data_pair['image_1']], 224, 224, 192)
+                # self.images_cache[data_pair['image_1']] = self.images_cache[data_pair['image_1']][:, :, 16:240, 16:240, 16:208]
+                # self.mind_cache[data_pair['image_1']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_1']].cuda(), 1, 2), 2).cpu()
 
             if data_pair['image_2'] not in self.images_cache:
-                self.images_cache[data_pair['image_2']] = torch.tensor(nib.load(data_pair['image_2']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
-                self.images_cache[data_pair['image_2']] = resize_with_grid_sample_3d(self.images_cache[data_pair['image_2']], 192, 192, 160)
-                self.mind_cache[data_pair['image_2']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_2']].cuda(), 1, 2), 2).cpu()
+                self.images_cache[data_pair['image_2']] = torch.tensor(nib.load(data_pair['image_2']).get_fdata(), dtype=torch.float).unsqueeze(0).unsqueeze(0)
+                # self.images_cache[data_pair['image_2']] = resize_with_grid_sample_3d(self.images_cache[data_pair['image_2']], 224, 224, 192)
+                # self.images_cache[data_pair['image_2']] = self.images_cache[data_pair['image_2']][:, :, 16:240, 16:240, 16:208]
+                # self.mind_cache[data_pair['image_2']] = F.avg_pool3d(MINDSSC(self.images_cache[data_pair['image_2']].cuda(), 1, 2), 2).cpu()
 
-        self.weights = torch.ones(len(data_list))
+        self.weights = weights
 
     def generate(self):
         while True:
@@ -78,8 +74,8 @@ class GPUCacheDataset(IterableDataset):
             out = {
                 'image_1': torch.concatenate([self.images_cache[self.samples[idx]['image_1']] for idx in idxs], dim=0),
                 'image_2':  torch.concatenate([self.images_cache[self.samples[idx]['image_2']] for idx in idxs], dim=0),
-                'mind_1': torch.concatenate([self.mind_cache[self.samples[idx]['image_1']] for idx in idxs], dim=0),
-                'mind_2': torch.concatenate([self.mind_cache[self.samples[idx]['image_2']] for idx in idxs], dim=0),
+                # 'mind_1': torch.concatenate([self.mind_cache[self.samples[idx]['image_1']] for idx in idxs], dim=0),
+                # 'mind_2': torch.concatenate([self.mind_cache[self.samples[idx]['image_2']] for idx in idxs], dim=0),
                 'idx': torch.tensor([self.samples[idx]['idx'] for idx in idxs])
             }
 
@@ -97,28 +93,31 @@ def get_data_loader(
         num_workers=8,
         shuffle=False,
         drop_last=False,
+        sampler=None,
         fast=False,
         max_samples_num=None,
-        random_samples=False,
+        weights=None
 ):
 
     data_list = read_json_data_file(data_file_path=data_file, data_dir=root_dir, keys=[key])[0]
 
-    if max_samples_num is not None and random_samples:
-        indices = random.sample(range(0, len(data_list) - 1), max_samples_num)
+    if max_samples_num is not None and weights is not None:
+        indices = list(WeightedRandomSampler(weights, max_samples_num, replacement=True))
         data_list = [data_list[idx] for idx in indices]
+        weights = [weights[idx] for idx in indices]
     elif max_samples_num is not None:
         data_list = data_list[:max_samples_num]
 
     if fast:
-        data_loader = GPUCacheDataset(data_list=data_list, batch_size=batch_size)
+        data_loader = GPUCacheDataset(data_list=data_list, batch_size=batch_size, weights=weights)
     else:
 
         radchestct_transform = monai.transforms.Compose(
             [
                 monai.transforms.LoadImaged(keys=KEYS),
                 monai.transforms.EnsureChannelFirstd(keys=KEYS, channel_dim='no_channel'),
-                monai.transforms.Resized(keys=KEYS, spatial_size=(192, 192, 160), mode=['trilinear', 'trilinear', 'nearest', 'nearest']),
+                # monai.transforms.CenterSpatialCropd(keys=KEYS, roi_size=(224, 224, 192)),
+                # monai.transforms.Resized(keys=KEYS, spatial_size=(224, 224, 192), mode=['trilinear', 'trilinear', 'nearest', 'nearest']),
                 monai.transforms.ToTensord(keys=KEYS)
             ]
         )
@@ -127,6 +126,7 @@ def get_data_loader(
         data_loader = monai.data.DataLoader(
             dataset=ds,
             batch_size=batch_size,
+            sampler=sampler,
             shuffle=shuffle,
             drop_last=drop_last,
             num_workers=num_workers,

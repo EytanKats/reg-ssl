@@ -1,4 +1,4 @@
-## Contrastive Mean Teacher for Unsupervised Medical Image Registration
+## E-CoRe: Equivariance-based Contrastive Regularization for Medical Image Registration
 
 ### Related works
 __Unsupervised 3D registration through optimization-guided cyclical self-training__  

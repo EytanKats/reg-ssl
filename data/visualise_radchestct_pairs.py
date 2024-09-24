@@ -1,10 +1,9 @@
 import os
 import torch
-import numpy as np
 import nibabel as nib
 import matplotlib.pyplot as plt
 
-from eval_utils import dice_coeff
+from core.eval_utils import dice_coeff
 
 RAD_CHEST_CT = '/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct'
 IMAGES = 'imgs'
