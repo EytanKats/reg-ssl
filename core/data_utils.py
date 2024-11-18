@@ -168,3 +168,17 @@ def get_rand_affine(batch_size, strength=0.05, flip=False):
         )
         affine = affine @ flip_affine
     return affine[:, :3], affine.inverse()[:, :3]
+
+
+def normalize_img(img):
+    """
+    Normalize the input tensor between [0, 1]
+    :param img: torch tensor
+    :return: normalized torch tensor
+    """
+
+    img_min = torch.min(img)
+    img_max = torch.max(img)
+    img = (img - img_min) / (img_max - img_min)
+
+    return img
