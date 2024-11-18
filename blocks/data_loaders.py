@@ -95,9 +95,8 @@ class CacheDataloader(IterableDataset):
 
 
 def get_data_loaders(
-        settings
+    settings
 ):
-
 
     # Get training data list
     training_data_list = read_json_data_file(
@@ -149,7 +148,7 @@ def get_data_loaders(
 
 
 def get_test_data_loaders(
-        settings
+    settings
 ):
     # Get test data list
     test_data_list = read_json_data_file(
@@ -181,3 +180,38 @@ def get_test_data_loaders(
     )
 
     return [test_data_loader]
+
+
+def get_sampling_data_loader(
+    settings
+):
+    # Get test data list
+    test_data_list = read_json_data_file(
+        data_file_path=settings['dataset']['data_file'],
+        data_dir=settings['dataset']['data_dir'],
+        keys='training'
+    )[0]
+
+    # Instantiate MONAI-based test data loader
+    transform = monai.transforms.Compose(
+        [
+            monai.transforms.LoadImaged(keys=settings['dataset']['keys']),
+            monai.transforms.EnsureChannelFirstd(keys=settings['dataset']['keys'], channel_dim='no_channel'),
+            monai.transforms.ToTensord(keys=settings['dataset']['keys'])
+        ]
+    )
+
+    sampling_dataset = monai.data.Dataset(
+        data=test_data_list,
+        transform=transform
+    )
+
+    sampling_data_loader = monai.data.DataLoader(
+        dataset=sampling_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
+    return [sampling_data_loader]
