@@ -6,6 +6,7 @@
         <serverdata>
           <mappings>
             <mapping deploy="/home/kats/projects/reg_ssl" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/kats/projects/simple_converge/simple_converge" local="$PROJECT_DIR$/../simple_converge/simple_converge" />
           </mappings>
         </serverdata>
       </paths>
