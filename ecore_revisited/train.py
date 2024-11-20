@@ -2,6 +2,7 @@ import sys
 import time
 from tqdm import tqdm
 import os
+import wandb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,6 +14,14 @@ from ecore_revisited.coupled_convex import coupled_convex
 
 
 def train(args):
+
+    # Initialize wandb
+    wandb.init(
+        project="ecore",
+        name=os.path.basename(args.out_dir),
+        config=args
+    )
+
     out_dir = args.out_dir
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -45,7 +54,7 @@ def train(args):
         all_fields_noadam, d_all_net, d_all0, _, _ = update_fields(data, feature_net, use_adam=False, num_warps=num_warps,
                                                                  ice=use_ice, reg_fac=reg_fac)
         # w/ Adam finetuning
-        all_fields, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice,
+        all_fields, _, _, d_all_adam, d_all_ident = update_fields(data, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice,
                                                         reg_fac=reg_fac)
         # compute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
         with torch.no_grad():
@@ -54,7 +63,11 @@ def train(args):
                                                                               8:-8]) * torch.tensor(
                     [D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
-        print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
+
+        # Log training metrics
+        print(f'TRAIN DICE for iter 0:', d_all0.sum() / (d_all_ident > 0.1).sum(), '>', d_all_net.sum() / (d_all_ident > 0.1).sum(), '>', d_all_adam.sum() / (d_all_ident > 0.1).sum())
+        wandb.log({"train_dice": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=0)
+        wandb.log({"train_dice_io": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=0)
 
     else:
         # w/o Adam finetuning
@@ -72,7 +85,11 @@ def train(args):
 
     # Calculate initial results on test data
     all_fields_test, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(data_test, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10.)
-    print('DSC:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
+
+    # Log validation metrics
+    print(f'VAL DICE for iter 0:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
+    wandb.log({"val_dice": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=0)
+    wandb.log({"val_dice_io": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=0)
 
     # perform overall 8 (2x4) cycle of self-training
     for repeat in range(2):
@@ -166,7 +183,7 @@ def train(args):
                                                                                  num_warps=num_warps, ice=use_ice,
                                                                                  reg_fac=reg_fac)
                         # w Adam finetuning
-                        all_fields, _, _, d_all_adam, _ = update_fields(data, feature_net, use_adam=True, num_warps=num_warps,
+                        all_fields, _, _, d_all_adam, d_all_ident = update_fields(data, feature_net, use_adam=True, num_warps=num_warps,
                                                                         ice=use_ice, reg_fac=reg_fac)
 
                         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
@@ -178,12 +195,18 @@ def train(args):
                                     [D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
-                        print('fields updated val error :', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>',
-                              d_all_adam[:3].mean())
+                        # Log training metrics
+                        print(f'TRAIN DICE for iter {repeat * 1000 + i + 1}:', d_all0.sum() / (d_all_ident > 0.1).sum(), '>', d_all_net.sum() / (d_all_ident > 0.1).sum(), '>', d_all_adam.sum() / (d_all_ident > 0.1).sum())
+                        wandb.log({"train_dice": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=repeat * 1000 + i + 1)
+                        wandb.log({"train_dice_io": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=repeat * 1000 + i + 1)
 
                         # Calculate intermediate results on test data
                         all_fields_test, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(data_test, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10.)
-                        print('DSC:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
+
+                        # Log validation metrics
+                        print(f'VAL DICE for iter {repeat * 1000 + i + 1}:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
+                        wandb.log({"val_dice": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=repeat * 1000 + i + 1)
+                        wandb.log({"val_dice_io": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=repeat * 1000 + i + 1)
 
                     else:
                         # w/o Adam finetuning
