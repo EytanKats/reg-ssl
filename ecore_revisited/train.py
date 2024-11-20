@@ -196,17 +196,17 @@ def train(args):
                                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
                         # Log training metrics
-                        print(f'TRAIN DICE for iter {repeat * 1000 + i + 1}:', d_all0.sum() / (d_all_ident > 0.1).sum(), '>', d_all_net.sum() / (d_all_ident > 0.1).sum(), '>', d_all_adam.sum() / (d_all_ident > 0.1).sum())
-                        wandb.log({"train_dice": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=repeat * 1000 + i + 1)
-                        wandb.log({"train_dice_io": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=repeat * 1000 + i + 1)
+                        print(f'TRAIN DICE for iter {repeat * half_iterations + i + 1}:', d_all0.sum() / (d_all_ident > 0.1).sum(), '>', d_all_net.sum() / (d_all_ident > 0.1).sum(), '>', d_all_adam.sum() / (d_all_ident > 0.1).sum())
+                        wandb.log({"train_dice": d_all_net.sum() / (d_all_ident > 0.1).sum()}, step=repeat * half_iterations + i + 1)
+                        wandb.log({"train_dice_io": d_all_adam.sum() / (d_all_ident > 0.1).sum()}, step=repeat * half_iterations + i + 1)
 
                         # Calculate intermediate results on test data
                         all_fields_test, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(data_test, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10.)
 
                         # Log validation metrics
-                        print(f'VAL DICE for iter {repeat * 1000 + i + 1}:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
-                        wandb.log({"val_dice": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=repeat * 1000 + i + 1)
-                        wandb.log({"val_dice_io": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=repeat * 1000 + i + 1)
+                        print(f'VAL DICE for iter {repeat * half_iterations + i + 1}:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
+                        wandb.log({"val_dice": d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()}, step=repeat * half_iterations + i + 1)
+                        wandb.log({"val_dice_io": d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}, step=repeat * half_iterations + i + 1)
 
                     else:
                         # w/o Adam finetuning
