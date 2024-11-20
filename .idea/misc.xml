@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="a100_label" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="a100_da" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.10.10 (sftp://kats@rechenknecht02:22/home/kats/miniconda3/envs/label/bin/python)" project-jdk-type="Python SDK" />
 </project>
