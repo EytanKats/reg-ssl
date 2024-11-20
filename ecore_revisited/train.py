@@ -50,9 +50,9 @@ def train(args):
         # compute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
         with torch.no_grad():
             with torch.cuda.amp.autocast():
-                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8, 8:-8,
-                                                                              8:-8].cuda()) * torch.tensor(
-                    [D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8] - all_fields[:, :, 8:-8, 8:-8,
+                                                                              8:-8]) * torch.tensor(
+                    [D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
         print('fields updated val error:', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>', d_all_adam[:3].mean())
 
@@ -172,10 +172,10 @@ def train(args):
                         # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
                         with torch.no_grad():
                             with torch.cuda.amp.autocast():
-                                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8].cuda() - all_fields[:, :, 8:-8,
+                                tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8] - all_fields[:, :, 8:-8,
                                                                                               8:-8,
-                                                                                              8:-8].cuda()) * torch.tensor(
-                                    [D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                                                                                              8:-8]) * torch.tensor(
+                                    [D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                                 tre_adam1 = (tre_adam.mean(-1).mean(-1).mean(-1))
 
                         print('fields updated val error :', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>',
