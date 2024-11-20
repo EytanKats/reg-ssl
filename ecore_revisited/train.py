@@ -26,6 +26,7 @@ def train(args):
 
     # Loading training data (segmentations only used for validation after each stage)
     data = prepare_data(data_split='train')
+    data_test = prepare_data(data_split='test')
 
     # initialize feature net
     feature_net = nn.Sequential(nn.Conv3d(1, 32, 3, padding=1, stride=2), nn.BatchNorm3d(32), nn.ReLU(),
@@ -68,6 +69,10 @@ def train(args):
                            nn.Conv3d(128, 128, 3, padding=1), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 16, 1)).cuda()
+
+    # Calculate initial results on test data
+    all_fields_test, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(data_test, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10.)
+    print('DSC:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
 
     # perform overall 8 (2x4) cycle of self-training
     for repeat in range(2):
@@ -175,6 +180,10 @@ def train(args):
 
                         print('fields updated val error :', d_all0[:3].mean(), '>', d_all_net[:3].mean(), '>',
                               d_all_adam[:3].mean())
+
+                        # Calculate intermediate results on test data
+                        all_fields_test, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(data_test, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10.)
+                        print('DSC:', d_all0_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_net_test.sum() / (d_all_ident_test > 0.1).sum(), '>', d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum())
 
                     else:
                         # w/o Adam finetuning
