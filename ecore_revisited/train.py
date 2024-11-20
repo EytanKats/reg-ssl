@@ -18,7 +18,7 @@ def train(args):
     # Initialize wandb
     wandb.init(
         project="ecore",
-        name=os.path.basename(args.out_dir),
+        name=os.path.basename(args.out_dir[:-1]),
         config=args
     )
 
