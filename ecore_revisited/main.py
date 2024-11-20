@@ -10,12 +10,12 @@ if __name__ == "__main__":
     # train or test
     parser.add_argument(
         "--phase",
-        default="test",
+        default="train",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments_ecore_revisited/original/",
         help="directory to write results to",
         type=str,
     )

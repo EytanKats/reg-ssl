@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 def prepare_data(data_split):
-    path = 'PATH/TO/DATA'
+    path = '/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
 
     # idx of train and val samples
     if data_split == 'train':
