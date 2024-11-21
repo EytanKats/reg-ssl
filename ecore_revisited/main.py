@@ -64,6 +64,13 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to use contrastive loss
+    parser.add_argument(
+        "--contrastive_loss",
+        default="true",
+        type=str,
+    )
+
     args = parser.parse_args()
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu

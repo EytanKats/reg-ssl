@@ -8,7 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import WeightedRandomSampler
 
-from ecore_revisited.data_utils import prepare_data, augment_affine_nl
+from info_nce import InfoNCE
+from ecore_revisited.data_utils import prepare_data, augment_affine_nl, resize_with_grid_sample_3d
 from ecore_revisited.registration_pipeline import update_fields
 from ecore_revisited.coupled_convex import coupled_convex
 
@@ -32,6 +33,7 @@ def train(args):
     use_adam = True if args.adam == 'true' else False
     do_sampling = True if args.sampling == 'true' else False
     do_augment = True if args.augment == 'true' else False
+    apply_contrastive_loss = True if args.contrastive_loss == 'true' else False
 
     # Loading training data (segmentations only used for validation after each stage)
     data = prepare_data(data_split='train')
@@ -83,6 +85,10 @@ def train(args):
                            nn.Conv3d(128, 128, 3, padding=1, stride=2), nn.BatchNorm3d(128), nn.ReLU(),
                            nn.Conv3d(128, 16, 1)).cuda()
 
+    # Define projection layer and loss for contrastive learning
+    info_loss = InfoNCE(temperature=0.1)
+    proj_net = nn.Sequential(nn.Conv3d(128, 128, 1)).cuda()
+
     # Calculate initial results on test data
     all_fields_test, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test = update_fields(data_test, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10.)
 
@@ -99,7 +105,7 @@ def train(args):
         feature_net.train()
         print()
 
-        optimizer = torch.optim.Adam(feature_net.parameters(), lr=0.001)
+        optimizer = torch.optim.Adam(list(feature_net.parameters()) + list(proj_net.parameters()), lr=0.001)
         eta_min = 0.00001
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 500 * 2, 1, eta_min=eta_min)
         run_lr = torch.zeros(2000 * 2)
@@ -110,9 +116,13 @@ def train(args):
         # placeholders for input images, pseudo labels, and affine augmentation matrices
         img0 = torch.zeros(2, 1, H, W, D).cuda()
         img1 = torch.zeros(2, 1, H, W, D).cuda()
+        img0_aug = torch.zeros(2, 1, H, W, D).cuda()
+        img1_aug = torch.zeros(2, 1, H, W, D).cuda()
         target = torch.zeros(2, 3, H // 2, W // 2, D // 2).cuda()
         affine1 = torch.zeros(2,  H, W, D, 3).cuda()
         affine2 = torch.zeros(2,  H, W, D, 3).cuda()
+        affine1_aug = torch.zeros(2, H, W, D, 3).cuda()
+        affine2_aug = torch.zeros(2, H, W, D, 3).cuda()
 
         t0 = time.time()
         with tqdm(total=half_iterations, file=sys.stdout, colour="red") as pbar:
@@ -160,6 +170,59 @@ def train(args):
                     tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target[:, :, 8:-8, 8:-8, 8:-8]) * torch.tensor(
                         [D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                     loss = tre.mean()
+
+                    wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
+
+                    # apply contrastive loss
+                    if apply_contrastive_loss:
+
+                        with torch.no_grad():
+                            for j in range(2):
+
+                                disp_field = all_fields[idx[j]:idx[j] + 1].cuda()
+                                _, affine1_aug[j:j + 1], affine2_aug[j:j + 1] = augment_affine_nl(disp_field)
+                                img0_aug[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1_aug[j:j + 1])
+                                img1_aug[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2_aug[j:j + 1])
+
+                            features_fix_aug = proj_net(feature_net[:-4](img0_aug))
+                            features_mov_aug = proj_net(feature_net[:-4](img1_aug))
+
+                        img0_.requires_grad = True
+                        img1_.requires_grad = True
+
+                        features_fix = proj_net(feature_net[:-4](img0_))
+                        features_mov = proj_net(feature_net[:-4](img1_))
+
+                        features_fix_warped = torch.zeros((2, 128, H // 4, W // 4, D // 4)).cuda()
+                        features_mov_warped = torch.zeros((2, 128, H // 4, W // 4, D // 4)).cuda()
+
+                        h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
+                        affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                        affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+
+                        featvecs_aug_list = []
+                        featvecs_warped_list = []
+                        for j in range(2):
+                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=False)
+                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=False)
+
+                            # Get locations to sample from feature masks
+                            ids = torch.argwhere(torch.zeros(h, w, d) > -1)
+                            ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
+
+                            # Sample feature vectors
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
+                            featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=1000)]
+                            featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+
+                        cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
+                        wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+
+                        loss = cl_loss + loss
 
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
