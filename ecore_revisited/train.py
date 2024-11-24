@@ -171,7 +171,7 @@ def train(args):
                         [D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
                     loss = tre.mean()
 
-                    wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
+                    wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=repeat * half_iterations + i)
 
                     # apply contrastive loss
                     if apply_contrastive_loss:
@@ -220,7 +220,7 @@ def train(args):
                             featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
                         cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
-                        wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+                        wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=repeat * half_iterations + i)
 
                         loss = cl_loss + loss
 
