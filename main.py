@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--num_iterations",
-        default=8000,
+        default=10000,
         type=int,
     )
     parser.add_argument(
@@ -227,7 +227,7 @@ if __name__ == "__main__":
     # whether to use intensity augmentations
     parser.add_argument(
         "--intensity",
-        default="true",
+        default="false",
         type=str,
     )
     # whether to use geometric augmentations
