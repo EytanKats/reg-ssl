@@ -458,7 +458,7 @@ def train(args):
                             features_mov_warped[j:j + 1] = features_mov[j:j + 1]
 
                         # Get locations to sample from feature masks
-                        ids = torch.argwhere(torch.zeros(h, w, d) > -1)
+                        ids = (torch.argwhere(img0_[j, 0] > -1.5) // (H / h)).type(torch.long)
                         ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
 
                         # Sample feature vectors
