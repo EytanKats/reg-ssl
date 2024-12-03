@@ -496,6 +496,8 @@ def train(args):
 
                     cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
                     wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+
+                    cl_coeff = 1 - i/iterations
                     loss = cl_coeff * cl_loss + loss
 
                 loss.backward()
