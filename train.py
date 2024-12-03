@@ -280,26 +280,6 @@ def train(args):
                             img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
                             img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
 
-                # visualize input data
-                if visualize:
-                    for j in range(training_batch_size):
-                        image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
-                        image_0 = img0.data.cpu().numpy()[j, 0, ...].copy()
-
-                        image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
-                        image_1 = img1.data.cpu().numpy()[j, 0, ...].copy()
-
-                        center_slice = image_0.shape[2] // 2
-
-                        f, axarr = plt.subplots(2, 2)
-                        axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
-                        axarr[0, 1].imshow(image_0[:, :, center_slice], cmap='gray')
-                        axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
-                        axarr[1, 1].imshow(image_1[:, :, center_slice], cmap='gray')
-
-                        plt.show()
-                        plt.close()
-
                 # pseudo-label generation
                 if use_ema:
 
@@ -355,6 +335,26 @@ def train(args):
                             img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
                             img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
                             target_aug[j:j + 1] = disp_field_aff
+
+                # visualize input data
+                if visualize:
+                    for j in range(training_batch_size):
+                        image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
+                        image_0 = img0.data.cpu().numpy()[j, 0, ...].copy()
+
+                        image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
+                        image_1 = img1.data.cpu().numpy()[j, 0, ...].copy()
+
+                        center_slice = image_0.shape[2] // 2
+
+                        f, axarr = plt.subplots(2, 2)
+                        axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
+                        axarr[0, 1].imshow(image_0[:, :, center_slice], cmap='gray')
+                        axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
+                        axarr[1, 1].imshow(image_1[:, :, center_slice], cmap='gray')
+
+                        plt.show()
+                        plt.close()
 
                 img0.requires_grad_(True)
                 img1.requires_grad_(True)
