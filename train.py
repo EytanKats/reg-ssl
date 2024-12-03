@@ -223,13 +223,13 @@ def train(args):
             if update_data_loader:
 
                 # difficulty weighting
-                # if use_adam and do_sampling:
-                #     q = torch.zeros(len(sampling_data_loader))
-                #     q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(sampling_data_loader)))
-                # else:
-                q = torch.ones(len(sampling_data_loader))
+                if use_adam and do_sampling:
+                    q = torch.zeros(len(sampling_data_loader))
+                    q[torch.argsort(tre_adam1)] = torch.sigmoid(torch.linspace(5, -5, len(sampling_data_loader)))
+                else:
+                    q = torch.ones(len(sampling_data_loader))
 
-                if cache_data_to_gpu:
+                if cache_data_to_gpu and i == 0:
                     train_data_loader = get_data_loader(
                             root_dir=root_dir,
                             data_file=data_file,
@@ -239,6 +239,8 @@ def train(args):
                             max_samples_num=max_samples_num,
                             weights=q
                         )
+                elif cache_data_to_gpu:
+                    train_data_loader.weights = q
                 else:
                     sampler = WeightedRandomSampler(q, training_batch_size, replacement=True)
                     train_data_loader = get_data_loader(
@@ -558,7 +560,7 @@ def train(args):
                         # w Adam finetuning
                         all_fields, _, _, d_all_adam, d_all_ident, sdlogj, sdlogj_adam = update_fields(sampling_data_loader, feature_net, use_adam=True, num_warps=num_warps, ice=use_ice, reg_fac=reg_fac, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window)
 
-                    # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
+                        # recompute difference between finetuned and non-finetuned fields for difficulty sampling --> the larger the difference, the more difficult the sample
                         with torch.no_grad():
                             tre_adam = ((all_fields_noadam[:, :, 8:-8, 8:-8, 8:-8] - all_fields[:, :, 8:-8, 8:-8, 8:-8])
                                         * torch.tensor([D / 2, W / 2, H / 2]).view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
@@ -574,7 +576,7 @@ def train(args):
                         wandb.log({"train_sdlogj_with_adam": sdlogj_adam}, step=i)
 
                     i += 1
-                    # update_data_loader = True
+                    update_data_loader = True
                     break
 
                 feature_net.train()
