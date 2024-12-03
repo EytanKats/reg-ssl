@@ -257,19 +257,14 @@ def train(args):
             for data_pair in train_data_loader:
                 optimizer.zero_grad()
 
-                # img0_ = (data_pair['image_1'] / 500).cuda()
-                # img1_ = (data_pair['image_2'] / 500).cuda()
                 indices = data_pair['idx'].numpy().tolist()
 
                 if use_mind:
                     mind0_ = data_pair['mind_1'].cuda()
                     mind1_ = data_pair['mind_2'].cuda()
 
-                img0_ = torch.zeros(training_batch_size, 1, H, W, D).cuda()
-                img1_ = torch.zeros(training_batch_size, 1, H, W, D).cuda()
-                for j in range(training_batch_size):
-                    img0_[j:j + 1] = ((data_pair['image_1'][j:j + 1] - torch.min(data_pair['image_1'][j:j + 1])) / (torch.max(data_pair['image_1'][j:j + 1]) - torch.min(data_pair['image_1'][j:j + 1]))).cuda()
-                    img1_[j:j + 1] = ((data_pair['image_2'][j:j + 1] - torch.min(data_pair['image_2'][j:j + 1])) / (torch.max(data_pair['image_2'][j:j + 1]) - torch.min(data_pair['image_2'][j:j + 1]))).cuda()
+                img0_ = (data_pair['image_1'] / 500).cuda()
+                img1_ = (data_pair['image_2'] / 500).cuda()
 
                 img0_.requires_grad_(True)
                 img1_.requires_grad_(True)
@@ -393,8 +388,17 @@ def train(args):
                         for j in range(training_batch_size):
 
                             if use_intensity_aug_for_cl:
-                                img0_aug[j, 0] = torch.tensor(nonlinear_transformation(img0_[j, 0, ...].view(-1))).cuda().view(H, W, D).unsqueeze(0)
-                                img1_aug[j, 0] = torch.tensor(nonlinear_transformation(img1_[j, 0, ...].view(-1))).cuda().view(H, W, D).unsqueeze(0)
+                                min_val = torch.min(img0_[j, 0, ...])
+                                max_val = torch.max(img0_[j, 0, ...])
+                                img0_scaled = (img0_[j, 0, ...] - min_val) / (max_val - min_val)
+                                img0_aug[j, 0] = torch.tensor(nonlinear_transformation(img0_scaled.view(-1))).cuda().view(H, W, D).unsqueeze(0)
+                                img0_aug[j, 0] = img0_aug[j, 0] * (max_val - min_val) + min_val
+
+                                min_val = torch.min(img1_[j, 0, ...])
+                                max_val = torch.max(img1_[j, 0, ...])
+                                img1_scaled = (img1_[j, 0, ...] - min_val) / (max_val - min_val)
+                                img1_aug[j, 0] = torch.tensor(nonlinear_transformation(img1_scaled.view(-1))).cuda().view(H, W, D).unsqueeze(0)
+                                img1_aug[j, 0] = img1_aug[j, 0] * (max_val - min_val) + min_val
                             else:
                                 img0_aug[j, 0] = img0_[j, 0]
                                 img1_aug[j, 0] = img1_[j, 0]
