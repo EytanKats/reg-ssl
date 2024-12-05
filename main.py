@@ -59,12 +59,6 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
-    # number of samples used in training data loader
-    parser.add_argument(
-        "--max_samples_num",
-        default=None,
-        type=int
-    )
 
     # #####################################
     # ##### DATASET SPECIFIC SETTINGS #####
@@ -87,6 +81,12 @@ if __name__ == "__main__":
             default=22,
             help="number of segmentation labels in dataset used to assess registration performance",
             type=int,
+        )
+        # number of samples used in training data loader
+        parser.add_argument(
+            "--max_samples_num",
+            default=None,
+            type=int
         )
         # whether to apply ct abdomen window during validation
         parser.add_argument(
@@ -113,6 +113,12 @@ if __name__ == "__main__":
             default=14,
             help="number of segmentation labels in dataset used to assess registration performance",
             type=int,
+        )
+        # number of samples used in training data loader
+        parser.add_argument(
+            "--max_samples_num",
+            default=None,
+            type=int
         )
         # whether to apply ct abdomen window during validation
         parser.add_argument(
@@ -148,7 +154,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--num_iterations",
-        default=10000,
+        default=8000,
         type=int,
     )
     parser.add_argument(
@@ -158,7 +164,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use_optim_with_restarts",
-        default="false",
+        default="true",
         type=str,
     )
     parser.add_argument(
@@ -236,6 +242,12 @@ if __name__ == "__main__":
         default="true",
         type=str,
     )
+    # whether to use deformable augmentations
+    parser.add_argument(
+        "--deformable",
+        default="false",
+        type=str,
+    )
     # weight of contrastive loss
     parser.add_argument(
         "--cl_coeff",
@@ -278,7 +290,6 @@ if __name__ == "__main__":
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    import torch
     torch.backends.cudnn.benchmark = True
     torch.multiprocessing.set_sharing_strategy('file_system')
 

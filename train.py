@@ -13,6 +13,7 @@ from torch.utils.data import WeightedRandomSampler
 from ema import EMA
 from info_nce import InfoNCE
 from adam_instance_opt import AdamReg
+from spatial_transform import SpatialTransform
 from data_utils import augment_affine_nl, resize_with_grid_sample_3d
 from augmentations_utils import nonlinear_transformation
 from dataloader_radchestct import get_data_loader
@@ -64,6 +65,7 @@ def train(args):
     num_sampled_featvecs = args.num_sampled_featvecs
     use_intensity_aug_for_cl = True if args.intensity == 'true' else False
     use_geometric_aug_for_cl = True if args.geometric == 'true' else False
+    use_deformable_aug_for_cl = True if args.deformable == 'true' else False
 
     cache_data_to_gpu = True if args.cache_data_to_gpu == 'true' else False
     visualize = True if args.visualize == 'true' else False
@@ -195,6 +197,10 @@ def train(args):
     else:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, iterations, eta_min=min_learning_rate)
 
+    scaler = torch.cuda.amp.GradScaler()
+
+    spatial_transform = SpatialTransform(alpha=(384, 512.), sigma=(3., 6.))
+
     # placeholders for input images, pseudo labels, and affine augmentation matrices
     img0 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
     img1 = torch.zeros(training_batch_size, 1, H, W, D).cuda()
@@ -257,129 +263,130 @@ def train(args):
             for data_pair in train_data_loader:
                 optimizer.zero_grad()
 
-                indices = data_pair['idx'].numpy().tolist()
+                with torch.cuda.amp.autocast():
+                    indices = data_pair['idx'].numpy().tolist()
 
-                if use_mind:
-                    mind0_ = data_pair['mind_1'].cuda()
-                    mind1_ = data_pair['mind_2'].cuda()
+                    if use_mind:
+                        mind0_ = data_pair['mind_1'].cuda()
+                        mind1_ = data_pair['mind_2'].cuda()
 
-                img0_ = (data_pair['image_1'] / 500).cuda()
-                img1_ = (data_pair['image_2'] / 500).cuda()
+                    img0_ = (data_pair['image_1'] / 500).cuda()
+                    img1_ = (data_pair['image_2'] / 500).cuda()
 
-                img0_.requires_grad_(True)
-                img1_.requires_grad_(True)
+                    img0_.requires_grad_(True)
+                    img1_.requires_grad_(True)
 
-                if use_mind:
-                    mind0_.requires_grad_(True)
-                    mind1_.requires_grad_(True)
+                    if use_mind:
+                        mind0_.requires_grad_(True)
+                        mind1_.requires_grad_(True)
 
-                # apply abdomen CT window
-                if apply_ct_abdomen_window_training:
-                    with torch.no_grad():
+                    # apply abdomen CT window
+                    if apply_ct_abdomen_window_training:
+                        with torch.no_grad():
+                            for j in range(training_batch_size):
+                                img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
+                                img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
+
+                    # pseudo-label generation
+                    if use_ema:
+
+                        ema.apply_shadow()
+
+                        with torch.no_grad():
+
+                            # random projection network
+                            proj = nn.Conv3d(64, 32, 1, bias=False)
+                            proj.cuda()
+
+                            # feature extraction with g and projection to 32 channels
+                            feat_fix = proj(feature_net[:6](img0_))
+                            feat_mov = proj(feature_net[:6](img1_))
+
+                            disp_to_finetune = coupled_convex(feature_net(img0_), feature_net(img1_), use_ice=True, img_shape=(H, W, D))
+
+                            # finetuning of displacement field with Adam
+                            flow = torch.zeros(training_batch_size, 3, H, W, D).cuda()
+                            for j in range(training_batch_size):
+                                flow[j:j + 1] = AdamReg(5 * feat_fix[j:j + 1], 5 * feat_mov[j:j + 1], disp_to_finetune[j:j + 1], reg_fac=reg_fac)
+                                target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')
+
+                        ema.restore()
+                    else:
                         for j in range(training_batch_size):
-                            img0_[j:j + 1] = torch.clamp(img0_[j:j + 1], -0.4, 0.6)
-                            img1_[j:j + 1] = torch.clamp(img1_[j:j + 1], -0.4, 0.6)
+                            target[j:j + 1] = all_fields[indices[j]:indices[j] + 1].cuda()
 
-                # pseudo-label generation
-                if use_ema:
+                    if do_augment:
+                        with torch.no_grad():
+                            for j in range(training_batch_size):
+                                min_val_0 = torch.min(img0_[j:j + 1])
+                                min_val_1 = torch.min(img1_[j:j + 1])
 
-                    ema.apply_shadow()
+                                disp_field = target[j:j + 1]
+                                disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
+                                img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
+                                img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
+                                target_aug[j:j + 1] = disp_field_aff
 
-                    with torch.no_grad():
+                                if use_mind:
+                                    h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
+                                    affine1_mind = resize_with_grid_sample_3d(affine1.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                                    affine2_mind = resize_with_grid_sample_3d(affine2.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
-                        # random projection network
-                        proj = nn.Conv3d(64, 32, 1, bias=False)
-                        proj.cuda()
+                                    mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind[j:j + 1])
+                                    mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind[j:j + 1])
+                    else:
+                        with torch.no_grad():
+                            for j in range(training_batch_size):
+                                input_field = target[j:j + 1]
+                                disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0., shape=(1, 1, H, W, D))
+                                img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
+                                img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
+                                target_aug[j:j + 1] = disp_field_aff
 
-                        # feature extraction with g and projection to 32 channels
-                        feat_fix = proj(feature_net[:6](img0_))
-                        feat_mov = proj(feature_net[:6](img1_))
-
-                        disp_to_finetune = coupled_convex(feature_net(img0_), feature_net(img1_), use_ice=True, img_shape=(H, W, D))
-
-                        # finetuning of displacement field with Adam
-                        flow = torch.zeros(training_batch_size, 3, H, W, D).cuda()
+                    # visualize input data
+                    if visualize:
                         for j in range(training_batch_size):
-                            flow[j:j + 1] = AdamReg(5 * feat_fix[j:j + 1], 5 * feat_mov[j:j + 1], disp_to_finetune[j:j + 1], reg_fac=reg_fac)
-                            target[j:j + 1] = F.interpolate(flow[j:j + 1], scale_factor=.5, mode='trilinear')
+                            image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
+                            image_0 = img0.data.cpu().numpy()[j, 0, ...].copy()
 
-                    ema.restore()
-                else:
-                    for j in range(training_batch_size):
-                        target[j:j + 1] = all_fields[indices[j]:indices[j] + 1].cuda()
+                            image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
+                            image_1 = img1.data.cpu().numpy()[j, 0, ...].copy()
 
-                if do_augment:
-                    with torch.no_grad():
-                        for j in range(training_batch_size):
-                            min_val_0 = torch.min(img0_[j:j + 1])
-                            min_val_1 = torch.min(img1_[j:j + 1])
+                            center_slice = image_0.shape[2] // 2
 
-                            disp_field = target[j:j + 1]
-                            disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(disp_field, shape=(1, 1, H, W, D))
-                            img0[j:j + 1] = F.grid_sample(img0_[j:j + 1] - min_val_0, affine1[j:j + 1]) + min_val_0
-                            img1[j:j + 1] = F.grid_sample(img1_[j:j + 1] - min_val_1, affine2[j:j + 1]) + min_val_1
-                            target_aug[j:j + 1] = disp_field_aff
+                            f, axarr = plt.subplots(2, 2)
+                            axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
+                            axarr[0, 1].imshow(image_0[:, :, center_slice], cmap='gray')
+                            axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
+                            axarr[1, 1].imshow(image_1[:, :, center_slice], cmap='gray')
 
-                            if use_mind:
-                                h, w, d = mind0.shape[-3], mind0.shape[-2], mind0.shape[-1]
-                                affine1_mind = resize_with_grid_sample_3d(affine1.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                                affine2_mind = resize_with_grid_sample_3d(affine2.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                            plt.show()
+                            plt.close()
 
-                                mind0[j:j + 1] = F.grid_sample(mind0_[j:j + 1], affine1_mind[j:j + 1])
-                                mind1[j:j + 1] = F.grid_sample(mind1_[j:j + 1], affine2_mind[j:j + 1])
-                else:
-                    with torch.no_grad():
-                        for j in range(training_batch_size):
-                            input_field = target[j:j + 1]
-                            disp_field_aff, affine1[j:j + 1], affine2[j:j + 1] = augment_affine_nl(input_field, strength=0., shape=(1, 1, H, W, D))
-                            img0[j:j + 1] = F.grid_sample(img0_[j:j + 1], affine1[j:j + 1])
-                            img1[j:j + 1] = F.grid_sample(img1_[j:j + 1], affine2[j:j + 1])
-                            target_aug[j:j + 1] = disp_field_aff
+                    img0.requires_grad_(True)
+                    img1.requires_grad_(True)
 
-                # visualize input data
-                if visualize:
-                    for j in range(training_batch_size):
-                        image_0_ = img0_.data.cpu().numpy()[j, 0, ...].copy()
-                        image_0 = img0.data.cpu().numpy()[j, 0, ...].copy()
+                    if use_mind:
+                        mind0.requires_grad_(True)
+                        mind1.requires_grad_(True)
 
-                        image_1_ = img1_.data.cpu().numpy()[j, 0, ...].copy()
-                        image_1 = img1.data.cpu().numpy()[j, 0, ...].copy()
+                    # feature extraction with feature net g
+                    features_fix = feature_net(img0)
+                    features_mov = feature_net(img1)
 
-                        center_slice = image_0.shape[2] // 2
+                    if use_mind:
+                        disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
+                        mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
+                        loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
+                    else:
+                        # differentiable optimization with optimizer h (coupled convex)
+                        disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
 
-                        f, axarr = plt.subplots(2, 2)
-                        axarr[0, 0].imshow(image_0_[:, :, center_slice], cmap='gray')
-                        axarr[0, 1].imshow(image_0[:, :, center_slice], cmap='gray')
-                        axarr[1, 0].imshow(image_1_[:, :, center_slice], cmap='gray')
-                        axarr[1, 1].imshow(image_1[:, :, center_slice], cmap='gray')
+                        # consistency loss between prediction and pseudo label
+                        tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8]) * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
+                        loss = tre.mean()
 
-                        plt.show()
-                        plt.close()
-
-                img0.requires_grad_(True)
-                img1.requires_grad_(True)
-
-                if use_mind:
-                    mind0.requires_grad_(True)
-                    mind1.requires_grad_(True)
-
-                # feature extraction with feature net g
-                features_fix = feature_net(img0)
-                features_mov = feature_net(img1)
-
-                if use_mind:
-                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
-                    mind_warp = F.grid_sample(mind1.cuda().float(), grid0 + disp_pred.permute(0, 2, 3, 4, 1))
-                    loss = nn.MSELoss()(mind0.cuda().float()[:, :, 8:-8, 8:-8, 8:-8], mind_warp[:, :, 8:-8, 8:-8, 8:-8]) * 1.5
-                else:
-                    # differentiable optimization with optimizer h (coupled convex)
-                    disp_pred = coupled_convex(features_fix, features_mov, use_ice=False, img_shape=(H // 2, W // 2, D // 2))
-
-                    # consistency loss between prediction and pseudo label
-                    tre = ((disp_pred[:, :, 8:-8, 8:-8, 8:-8] - target_aug[:, :, 8:-8, 8:-8, 8:-8]) * torch.tensor([D / 2, W / 2, H / 2]).cuda().view(1, -1, 1, 1, 1)).pow(2).sum(1).sqrt() * 1.5
-                    loss = tre.mean()
-
-                wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
+                    wandb.log({"reg_loss": loss.detach().cpu().numpy()}, step=i)
 
                 # apply contrastive loss
                 if apply_contrastive_loss:
@@ -412,6 +419,20 @@ def train(args):
                                 img0_aug[j:j + 1] = F.grid_sample(img0_aug[j:j + 1] - min_val_0, affine1_aug[j:j + 1], align_corners=True) + min_val_0
                                 img1_aug[j:j + 1] = F.grid_sample(img1_aug[j:j + 1] - min_val_1, affine2_aug[j:j + 1], align_corners=True) + min_val_1
 
+                            elif use_deformable_aug_for_cl:
+
+                                min_val_0 = torch.min(img0_aug[j:j + 1])
+                                min_val_1 = torch.min(img1_aug[j:j + 1])
+
+                                aff_mat_0, disp_field_0 = spatial_transform.rand_coords((H, W, D))
+                                aff_mat_1, disp_field_1 = spatial_transform.rand_coords((H, W, D))
+
+                                affine1_aug[j:j + 1], img0_aug[j:j + 1] = spatial_transform.augment_spatial(img0_aug[j:j + 1] - min_val_0, code_spa=disp_field_0)
+                                affine2_aug[j:j + 1], img1_aug[j:j + 1] = spatial_transform.augment_spatial(img1_aug[j:j + 1] - min_val_1, code_spa=disp_field_1)
+
+                                img0_aug[j:j + 1] += min_val_0
+                                img1_aug[j:j + 1] += min_val_1
+
                         # visualize data for contrastive loss
                         if visualize:
                             for j in range(training_batch_size):
@@ -432,76 +453,91 @@ def train(args):
                                 plt.show()
                                 plt.close()
 
-                        features_fix_aug = proj_net(feature_net[:-4](img0_aug))
-                        features_mov_aug = proj_net(feature_net[:-4](img1_aug))
+                    with torch.cuda.amp.autocast():
 
-                    features_fix = proj_net(feature_net[:-4](img0_))
-                    features_mov = proj_net(feature_net[:-4](img1_))
+                        # features_fix_aug = proj_net(feature_net[:-4](img0_aug))
+                        # features_mov_aug = proj_net(feature_net[:-4](img1_aug))
+                        # features_fix_aug = feature_net[:4](img0_aug)
+                        # features_mov_aug = feature_net[:4](img1_aug)
+                        features_fix_aug = feature_net[:-6](img0_aug)
+                        features_mov_aug = feature_net[:-6](img1_aug)
 
-                    features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
-                    features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
+                        # features_fix = proj_net(feature_net[:-4](img0_))
+                        # features_mov = proj_net(feature_net[:-4](img1_))
+                        # features_fix = feature_net[:4](img0_)
+                        # features_mov = feature_net[:4](img1_)
+                        features_fix = feature_net[:-6](img0_)
+                        features_mov = feature_net[:-6](img1_)
 
-                    h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
-                    if use_geometric_aug_for_cl:
-                        affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
-                        affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                        features_fix_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
+                        features_mov_warped = torch.zeros((training_batch_size, 128, H // 4, W // 4, D // 4)).cuda()
+                        # features_fix_warped = torch.zeros((training_batch_size, 64, H // 2, W // 2, D // 2)).cuda()
+                        # features_mov_warped = torch.zeros((training_batch_size, 64, H // 2, W // 2, D // 2)).cuda()
 
-                    featvecs_aug_list = []
-                    featvecs_warped_list = []
-                    for j in range(training_batch_size):
+                        h, w, d = features_fix.shape[-3], features_fix.shape[-2], features_fix.shape[-1]
+                        if use_geometric_aug_for_cl or use_deformable_aug_for_cl:
+                            affine1_feat = resize_with_grid_sample_3d(affine1_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
+                            affine2_feat = resize_with_grid_sample_3d(affine2_aug.permute(0, 4, 1, 2, 3), h, w, d).permute(0, 2, 3, 4, 1)
 
-                        if use_geometric_aug_for_cl:
-                            features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
-                            features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
-                        elif use_intensity_aug_for_cl:
-                            features_fix_warped[j:j + 1] = features_fix[j:j + 1]
-                            features_mov_warped[j:j + 1] = features_mov[j:j + 1]
-
-                        # Get locations to sample from feature masks
-                        ids = (torch.argwhere(img0_[j, 0] > -1.5) // (H / h)).type(torch.long)
-                        ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
-
-                        # Sample feature vectors
-                        ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
-                        featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-                        featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-
-                        ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
-                        featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-                        featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-
-                    # visualize features
-                    if visualize:
+                        featvecs_aug_list = []
+                        featvecs_warped_list = []
                         for j in range(training_batch_size):
-                            f_fix = features_fix.data.cpu().numpy()[j, 64, ...].copy()
-                            f_fix_aug = features_fix_aug.data.cpu().numpy()[j, 64, ...].copy()
-                            f_fix_warped = features_fix_warped.data.cpu().numpy()[j, 64, ...].copy()
 
-                            f_mov = features_mov.data.cpu().numpy()[j, 64, ...].copy()
-                            f_mov_aug = features_mov_aug.data.cpu().numpy()[j, 64, ...].copy()
-                            f_mov_warped = features_mov_warped.data.cpu().numpy()[j, 64, ...].copy()
+                            if use_geometric_aug_for_cl or use_deformable_aug_for_cl:
+                                features_fix_warped[j:j + 1] = F.grid_sample(features_fix[j:j + 1], affine1_feat[j:j + 1], align_corners=True)
+                                features_mov_warped[j:j + 1] = F.grid_sample(features_mov[j:j + 1], affine2_feat[j:j + 1], align_corners=True)
+                            elif use_intensity_aug_for_cl:
+                                features_fix_warped[j:j + 1] = features_fix[j:j + 1]
+                                features_mov_warped[j:j + 1] = features_mov[j:j + 1]
 
-                            center_slice = f_fix.shape[2] // 2
+                            # Get locations to sample from feature masks
+                            ids = (torch.argwhere(img0_[j, 0] > -1.5) // (H / h)).type(torch.long)
+                            ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
 
-                            f, axarr = plt.subplots(2, 3)
-                            axarr[0, 0].imshow(f_fix[:, :, center_slice], cmap='gray')
-                            axarr[0, 1].imshow(f_fix_aug[:, :, center_slice], cmap='gray')
-                            axarr[0, 2].imshow(f_fix_warped[:, :, center_slice], cmap='gray')
-                            axarr[1, 0].imshow(f_mov[:, :, center_slice], cmap='gray')
-                            axarr[1, 1].imshow(f_mov_aug[:, :, center_slice], cmap='gray')
-                            axarr[1, 2].imshow(f_mov_warped[:, :, center_slice], cmap='gray')
+                            # Sample feature vectors
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
+                            featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
-                            plt.show()
-                            plt.close()
+                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
+                            featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
 
-                    cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
-                    wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+                        # visualize features
+                        if visualize:
+                            for j in range(training_batch_size):
+                                f_fix = features_fix.data.cpu().numpy()[j, 64, ...].copy()
+                                f_fix_aug = features_fix_aug.data.cpu().numpy()[j, 64, ...].copy()
+                                f_fix_warped = features_fix_warped.data.cpu().numpy()[j, 64, ...].copy()
 
-                    cl_coeff = 1 - i/iterations
-                    loss = cl_coeff * cl_loss + loss
+                                f_mov = features_mov.data.cpu().numpy()[j, 64, ...].copy()
+                                f_mov_aug = features_mov_aug.data.cpu().numpy()[j, 64, ...].copy()
+                                f_mov_warped = features_mov_warped.data.cpu().numpy()[j, 64, ...].copy()
 
-                loss.backward()
-                optimizer.step()
+                                center_slice = f_fix.shape[2] // 2
+
+                                f, axarr = plt.subplots(2, 3)
+                                axarr[0, 0].imshow(f_fix[:, :, center_slice], cmap='gray')
+                                axarr[0, 1].imshow(f_fix_aug[:, :, center_slice], cmap='gray')
+                                axarr[0, 2].imshow(f_fix_warped[:, :, center_slice], cmap='gray')
+                                axarr[1, 0].imshow(f_mov[:, :, center_slice], cmap='gray')
+                                axarr[1, 1].imshow(f_mov_aug[:, :, center_slice], cmap='gray')
+                                axarr[1, 2].imshow(f_mov_warped[:, :, center_slice], cmap='gray')
+
+                                plt.show()
+                                plt.close()
+
+                        cl_loss = info_loss(torch.concat(featvecs_aug_list), torch.concat(featvecs_warped_list))
+                        wandb.log({"infoNCE_loss": cl_loss.detach().cpu().numpy()}, step=i)
+
+                        cl_coeff = 1 - i / iterations
+                        loss = cl_coeff * cl_loss + loss
+
+                # loss.backward()
+                # optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
                 scheduler.step()
 
                 lr = float(scheduler.get_last_lr()[0])
