@@ -1,4 +1,5 @@
 import os
+import torch
 import argparse
 
 from test import test
@@ -269,7 +270,7 @@ if __name__ == "__main__":
     # strength of affine augmentations for contrastive loss
     parser.add_argument(
         "--strength",
-        default=0.05,
+        default=0.02,
         type=int,
     )
 
