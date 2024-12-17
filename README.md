@@ -1,4 +1,4 @@
-## Contrastive Mean Teacher for Unsupervised Medical Image Registration
+## CoRe: Joint Optimization with Contrastive Learning for Medical Image Registration
 
 ### Related works
 __Unsupervised 3D registration through optimization-guided cyclical self-training__  
