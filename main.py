@@ -33,13 +33,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--base_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl",
+        default="",
         help="directory to write results to",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="experiments/core_int/f0",
+        default="",
         help="directory to write results to",
         type=str,
     )
@@ -135,17 +135,13 @@ if __name__ == "__main__":
     if PHASE == 'test':
         parser.add_argument(
             "--ckpt_path_1",
-            default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_2/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_3/student_stage10.pth"],
+            default=[""],
             help="chekpoint to load",
             type=str,
         )
         parser.add_argument(
             "--ckpt_path_2",
-            default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_1/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_2/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_3/student_stage10.pth"],
+            default=[""],
             help="chekpoint to load",
             type=str,
         )
