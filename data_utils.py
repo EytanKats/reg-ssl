@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 
 def prepare_abdomenctct_data(data_split):
-    path = '/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
+    path = '/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/abdomen_ctct'
 
     # idx of train and val samples
     if data_split == 'train':
@@ -43,7 +43,7 @@ def prepare_abdomenctct_data(data_split):
 
 def prepare_radchest_data(data_split):
 
-    RAD_CHEST_CT = '/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct'
+    RAD_CHEST_CT = '/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/radchest_ct'
     PAIRS = 'list_of_pairs.pth'
     IMAGES = 'imgs'
     LABELS = 'lbls_ts'

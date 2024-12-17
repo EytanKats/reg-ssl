@@ -47,11 +47,11 @@ def get_pairs(indices):
     return pairs
 
 
-ROOT_DIR = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct'
+ROOT_DIR = f'/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/abdomen_ctct'
 IMAGE_DIR = f'imagesTr'
 MASK_DIR = f'labelsTr'
 
-OUTPUT_FILE_PATH_TEMPLATE = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/abdomen_ctct/abdomen_ct'
+OUTPUT_FILE_PATH_TEMPLATE = f'/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/abdomen_ctct/abdomen_ct'
 
 train_idx = (2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 29, 30)
 val_idx = (2, 8, 14, 20, 26, 30)

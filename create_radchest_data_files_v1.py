@@ -27,12 +27,12 @@ def create_json_data_file(
         json.dump(files_in_decathlon_format, output_file, indent=4, ensure_ascii=False)
 
 
-ROOT_DIR = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/'
+ROOT_DIR = f'/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/radchest_ct/'
 IMAGE_DIR = f'imgs'
 MASK_DIR = f'lbls_ts'
-PAIRS = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/list_of_pairs.pth'
+PAIRS = f'/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/radchest_ct/list_of_pairs.pth'
 
-OUTPUT_FILE_PATH_TEMPLATE = f'/home/kats/storage/staff/eytankats/projects/reg_ssl/data/radchest_ct/radchest_ct_5'
+OUTPUT_FILE_PATH_TEMPLATE = f'/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/radchest_ct/radchest_ct_5'
 
 NUM_SPLITS = 5
 NUM_VAL_IMAGES = 50
