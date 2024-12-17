@@ -1,4 +1,5 @@
 import os
+import torch
 import argparse
 
 from test import test
@@ -32,13 +33,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--base_dir",
-        default="/home/kats/storage/staff/eytankats/projects/reg_ssl",
+        default="",
         help="directory to write results to",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="experiments/core_int/f0",
+        default="",
         help="directory to write results to",
         type=str,
     )
@@ -58,12 +59,6 @@ if __name__ == "__main__":
         "--cache_data_to_gpu",
         default="true",
         type=str,
-    )
-    # number of samples used in training data loader
-    parser.add_argument(
-        "--max_samples_num",
-        default=None,
-        type=int
     )
 
     # #####################################
@@ -87,6 +82,12 @@ if __name__ == "__main__":
             default=22,
             help="number of segmentation labels in dataset used to assess registration performance",
             type=int,
+        )
+        # number of samples used in training data loader
+        parser.add_argument(
+            "--max_samples_num",
+            default=None,
+            type=int
         )
         # whether to apply ct abdomen window during validation
         parser.add_argument(
@@ -114,6 +115,12 @@ if __name__ == "__main__":
             help="number of segmentation labels in dataset used to assess registration performance",
             type=int,
         )
+        # number of samples used in training data loader
+        parser.add_argument(
+            "--max_samples_num",
+            default=None,
+            type=int
+        )
         # whether to apply ct abdomen window during validation
         parser.add_argument(
             "--apply_ct_abdomen_window",
@@ -128,17 +135,13 @@ if __name__ == "__main__":
     if PHASE == 'test':
         parser.add_argument(
             "--ckpt_path_1",
-            default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_1/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_2/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_baseline_regcyc_noclamp_3/student_stage10.pth"],
+            default=[""],
             help="chekpoint to load",
             type=str,
         )
         parser.add_argument(
             "--ckpt_path_2",
-            default=["/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_1/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_2/student_stage10.pth",
-                    "/home/kats/storage/staff/eytankats/projects/reg_ssl/experiments/dataloader_abdomenct_comete_noclamp_3/student_stage10.pth"],
+            default=[""],
             help="chekpoint to load",
             type=str,
         )
@@ -158,7 +161,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use_optim_with_restarts",
-        default="false",
+        default="true",
         type=str,
     )
     parser.add_argument(
@@ -227,13 +230,19 @@ if __name__ == "__main__":
     # whether to use intensity augmentations
     parser.add_argument(
         "--intensity",
-        default="true",
+        default="false",
         type=str,
     )
     # whether to use geometric augmentations
     parser.add_argument(
         "--geometric",
         default="true",
+        type=str,
+    )
+    # whether to use deformable augmentations
+    parser.add_argument(
+        "--deformable",
+        default="false",
         type=str,
     )
     # weight of contrastive loss
@@ -257,7 +266,7 @@ if __name__ == "__main__":
     # strength of affine augmentations for contrastive loss
     parser.add_argument(
         "--strength",
-        default=0.05,
+        default=0.02,
         type=int,
     )
 
@@ -278,7 +287,6 @@ if __name__ == "__main__":
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    import torch
     torch.backends.cudnn.benchmark = True
     torch.multiprocessing.set_sharing_strategy('file_system')
 

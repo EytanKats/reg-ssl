@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="a100_da" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="a100_label" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="a100_da">
         <serverdata>
@@ -13,6 +13,14 @@
         <serverdata>
           <mappings>
             <mapping deploy="/home/kats/projects/reg_ssl" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="rk02_label">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/kats/projects/reg_ssl" local="$PROJECT_DIR$" web="/" />
+            <mapping local="" />
           </mappings>
         </serverdata>
       </paths>
