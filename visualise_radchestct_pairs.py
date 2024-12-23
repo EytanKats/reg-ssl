@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from eval_utils import dice_coeff
 
-RAD_CHEST_CT = '/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/radchest_ct'
+RAD_CHEST_CT = '/home/xxxx/storage/staff/yyyyyxxxx/projects/reg_ssl/data/radchest_ct'
 IMAGES = 'imgs'
 LABELS = 'lbls_ts'
 PAIRS = 'list_of_pairs.pth'

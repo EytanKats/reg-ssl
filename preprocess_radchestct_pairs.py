@@ -5,8 +5,8 @@ import nibabel as nib
 
 from tqdm import tqdm
 
-RAD_CHEST_CT = '/home/xxxx/storage/staff/eytanxxxx/data/radchest_ct'
-OUTPUT_DIR = '/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/radchest_ct'
+RAD_CHEST_CT = '/home/xxxx/storage/staff/yyyyyxxxx/data/radchest_ct'
+OUTPUT_DIR = '/home/xxxx/storage/staff/yyyyyxxxx/projects/reg_ssl/data/radchest_ct'
 IMAGES = 'imgs'
 LABELS = 'lbls_ts'
 PAIRS = 'list_of_pairs.pth'

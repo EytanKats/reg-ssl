@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 def prepare_data(data_split):
-    path = '/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/data/abdomen_ctct'
+    path = '/home/xxxx/storage/staff/yyyyyxxxx/projects/reg_ssl/data/abdomen_ctct'
 
     # idx of train and val samples
     if data_split == 'train':

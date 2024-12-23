@@ -18,7 +18,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out_dir",
-        default="/home/xxxx/storage/staff/eytanxxxx/projects/reg_ssl/experiments_ecore_revisited/original/",
+        default="/home/xxxx/storage/staff/yyyyyxxxx/projects/reg_ssl/experiments_ecore_revisited/original/",
         help="directory to write results to",
         type=str,
     )
