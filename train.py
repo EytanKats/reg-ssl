@@ -85,7 +85,7 @@ def train(args):
         val_data_loader = get_data_loader(
             root_dir=root_dir,
             data_file=data_file,
-            key='test',
+            key='validation',
             batch_size=1,
             num_workers=4,
             shuffle=False,
