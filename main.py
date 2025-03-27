@@ -215,7 +215,7 @@ if __name__ == "__main__":
         default="false",
         type=str,
     )
-    # whether to use teacher-student approach during the training
+    # whether to use mind loss during the training
     parser.add_argument(
         "--use_mind",
         default="false",
