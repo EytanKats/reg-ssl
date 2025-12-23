@@ -42,6 +42,35 @@ def read_json_data_file(
     return files
 
 
+def clip_and_normalize(img: torch.Tensor, low_percentile: float = 2.0, high_percentile: float = 98.0) -> torch.Tensor:
+    """
+    Clip an image tensor by percentiles and normalize to [0,1].
+
+    Args:
+        img (torch.Tensor): Input image tensor (C,H,W) or (H,W).
+        low_percentile (float): Lower percentile (0-100).
+        high_percentile (float): Upper percentile (0-100).
+
+    Returns:
+        torch.Tensor: Clipped and normalized image in [0,1].
+    """
+    # Flatten for percentile computation
+    flat = img.flatten()
+
+    # Compute thresholds
+    low_val = torch.quantile(flat, low_percentile / 100.0)
+    high_val = torch.quantile(flat, high_percentile / 100.0)
+
+    # Clip values
+    # clipped = torch.clamp(img, min=low_val.item(), max=high_val.item())
+    clipped = torch.clamp(img, min=-200, max=400)
+
+    # Normalize to [0,1]
+    norm = (clipped - low_val) / (high_val - low_val + 1e-8)  # avoid division by zero
+
+    return norm
+
+
 class GPUCacheDataset(IterableDataset):
     def __init__(self, data_list, batch_size, weights):
         self.data_list = data_list
