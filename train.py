@@ -25,7 +25,7 @@ def train(args):
 
     # Initialize wandb
     wandb.init(
-        project="reg-ssl",
+        project="reg_ssl",
         name=os.path.basename(args.out_dir),
         config=args
     )
@@ -93,6 +93,30 @@ def train(args):
         )
         num_labels = 14
         apply_ct_abdomen_window = True
+        apply_ct_abdomen_window_training = False
+
+    if dataset == 'abdomenmrct':
+
+        sampling_data_loader = get_data_loader(
+            root_dir=root_dir,
+            data_file=data_file,
+            key='training',
+            batch_size=1,
+            num_workers=4,
+            shuffle=False,
+            drop_last=False
+        )
+        val_data_loader = get_data_loader(
+            root_dir=root_dir,
+            data_file=data_file,
+            key='validation',
+            batch_size=1,
+            num_workers=4,
+            shuffle=False,
+            drop_last=False
+        )
+        num_labels = 5
+        apply_ct_abdomen_window = False
         apply_ct_abdomen_window_training = False
 
     elif dataset == 'radchestct':

@@ -33,21 +33,21 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--base_dir",
-        default="",
-        help="directory to write results to",
+        default="/home/kats/storage/staff/eytankats/projects/reg_ssl/",
+        help="base directory of the project",
         type=str,
     )
     parser.add_argument(
         "--out_dir",
-        default="",
-        help="directory to write results to",
+        default="experiments/abdomenmrct/test",
+        help="output directory of the experiment",
         type=str,
     )
 
     # ##########################
     # ##### DATA SETTINGS #####
 
-    DATASET = 'radchestct'  # dataset: abdomenctct, radchestct
+    DATASET = 'abdomenmrct'  # dataset: abdomenctct, abdomenmrct, radchestct
 
     parser.add_argument(
         "--dataset",
@@ -112,6 +112,39 @@ if __name__ == "__main__":
         parser.add_argument(
             "--num_labels",
             default=14,
+            help="number of segmentation labels in dataset used to assess registration performance",
+            type=int,
+        )
+        # number of samples used in training data loader
+        parser.add_argument(
+            "--max_samples_num",
+            default=None,
+            type=int
+        )
+        # whether to apply ct abdomen window during validation
+        parser.add_argument(
+            "--apply_ct_abdomen_window",
+            default="true",
+            help="apply ct abdomen window during validation",
+            type=str,
+        )
+
+    elif DATASET == "abdomenmrct":
+        parser.add_argument(
+            "--root_dir",
+            default="data/abdomen_mrct",
+            help="directory with the data files",
+            type=str,
+        )
+        parser.add_argument(
+            "--data_file",
+            default="data/abdomen_mrct/abdomen_mrct_orig.json",
+            help="data .json file",
+            type=str,
+        )
+        parser.add_argument(
+            "--num_labels",
+            default=5,
             help="number of segmentation labels in dataset used to assess registration performance",
             type=int,
         )
@@ -266,7 +299,7 @@ if __name__ == "__main__":
     # strength of affine augmentations for contrastive loss
     parser.add_argument(
         "--strength",
-        default=0.02,
+        default=0.05,  # 0.02
         type=int,
     )
 
