@@ -515,17 +515,22 @@ def train(args):
                                 features_mov_warped[j:j + 1] = features_mov[j:j + 1]
 
                             # Get locations to sample from feature masks
-                            ids = (torch.argwhere(img0_[j, 0] > -1.5) // (H / h)).type(torch.long)
-                            ids = ids[(ids[:, 0] > 4) & (ids[:, 1] > 4) & (ids[:, 2] > 4) & (ids[:, 0] < h - 5) & (ids[:, 1] < w - 5) & (ids[:, 2] < d - 5)]
+                            img0_scaled = torch.nn.functional.interpolate(img0_[j:j+1], size=(h, w, d), mode='trilinear')
+                            ids0 = (torch.argwhere(img0_scaled[0, 0] > -1.5) // (H / h)).type(torch.long)
+                            ids0 = ids0[(ids0[:, 0] > 4) & (ids0[:, 1] > 4) & (ids0[:, 2] > 4) & (ids0[:, 0] < h - 5) & (ids0[:, 1] < w - 5) & (ids0[:, 2] < d - 5)]
+
+                            img1_scaled = torch.nn.functional.interpolate(img1_[j:j + 1], size=(h, w, d), mode='trilinear')
+                            ids1 = (torch.argwhere(img1_scaled[0, 0] > -1.5) // (H / h)).type(torch.long)
+                            ids1 = ids1[(ids1[:, 0] > 4) & (ids1[:, 1] > 4) & (ids1[:, 2] > 4) & (ids1[:, 0] < h - 5) & (ids1[:, 1] < w - 5) & (ids1[:, 2] < d - 5)]
 
                             # Sample feature vectors
-                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
-                            featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-                            featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            ids0 = ids0[torch.multinomial(torch.ones(ids0.shape[0]), num_samples=num_sampled_featvecs)]
+                            featvecs_aug_list.append(features_fix_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids0, dim=1)])
+                            featvecs_warped_list.append(features_fix_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids0, dim=1)])
 
-                            ids = ids[torch.multinomial(torch.ones(ids.shape[0]), num_samples=num_sampled_featvecs)]
-                            featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
-                            featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids, dim=1)])
+                            ids1 = ids1[torch.multinomial(torch.ones(ids1.shape[0]), num_samples=num_sampled_featvecs)]
+                            featvecs_aug_list.append(features_mov_aug[j, :].permute(1, 2, 3, 0)[torch.unbind(ids1, dim=1)])
+                            featvecs_warped_list.append(features_mov_warped[j, :].permute(1, 2, 3, 0)[torch.unbind(ids1, dim=1)])
 
                         # visualize features
                         if visualize:
