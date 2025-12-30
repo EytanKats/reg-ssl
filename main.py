@@ -39,7 +39,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--out_dir",
-        default="experiments/abdomenmrct/test",
+        default="experiments/abdomenctct/test",
         help="output directory of the experiment",
         type=str,
     )
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     # ##########################
     # ##### DATA SETTINGS #####
 
-    DATASET = 'abdomenmrct'  # dataset: abdomenctct, abdomenmrct, radchestct
+    DATASET = 'abdomenctct'  # dataset: abdomenctct, abdomenmrct, radchestct
 
     parser.add_argument(
         "--dataset",
@@ -287,7 +287,7 @@ if __name__ == "__main__":
     # number of positive pairs for contrastive loss
     parser.add_argument(
         "--num_sampled_featvecs",
-        default=1000,
+        default=4000,
         type=int,
     )
     # temperature factor for infoNCE loss
