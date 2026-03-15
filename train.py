@@ -586,7 +586,7 @@ def train(args):
                         ema.apply_shadow()
 
                         _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
-                            val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                            val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=reg_fac,
                             log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window, use_mind=use_mind
                         )
                         print(f'VAL_TEACHER: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
@@ -600,7 +600,7 @@ def train(args):
                             ema.restore()
 
                     _, d_all_net_test, d_all0_test, d_all_adam_test, d_all_ident_test, test_sdlogj, test_sdlogj_adam = update_fields(
-                        val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=10.,
+                        val_data_loader, feature_net, use_adam=True, num_warps=2, ice=True, reg_fac=reg_fac,
                         log_to_wandb=log_to_wandb, iteration=i, compute_jacobian=True, num_labels=num_labels, clamp=apply_ct_abdomen_window, use_mind=use_mind
                     )
                     print(f'VAL_STUDENT: {d_all_net_test.sum() / (d_all_ident_test > 0.1).sum()} -> {d_all_adam_test.sum() / (d_all_ident_test > 0.1).sum()}')
