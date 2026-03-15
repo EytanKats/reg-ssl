@@ -43,19 +43,19 @@ def test(args):
 
     dice_1 = None
     for ckpt_path in args.ckpt_path_1:
-        feature_net = torch.load(ckpt_path).cuda()
+        feature_net = torch.load(ckpt_path, weights_only=False).cuda()
 
         working_point_found = False
         direction = None
         update = 2.5
         reg_fac = 10
         while not working_point_found:
-            all_fields, d_all_net, d_all0, d_all_adam, d_all_ident, sdlogj, sdloj_adam = update_fields(data, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=10, num_labels=num_labels, clamp=apply_ct_abdomen_window)
+            all_fields, d_all_net, d_all0, d_all_adam, d_all_ident, sdlogj, sdloj_adam = update_fields(data, feature_net, True, num_warps=2, compute_jacobian=True, ice=True, reg_fac=reg_fac, num_labels=num_labels, clamp=apply_ct_abdomen_window)
             print('DSC:', d_all0.sum() / (d_all_ident > 0.1).sum(), '>', d_all_net.sum() / (d_all_ident > 0.1).sum(), '>', d_all_adam.sum() / (d_all_ident > 0.1).sum())
             print('SDLJ:', sdlogj, '>', sdloj_adam)
             print(f'REG_FAC = {reg_fac}, UPDATE = {update}')
 
-            if sdloj_adam > 0.110:  # 0.155 for abdomenct, 0.110 for radchestct
+            if sdloj_adam > 0.155:  # 0.155 for abdomenct, 0.110 for radchestct
 
                 if direction is None:
                     reg_fac = reg_fac + update
@@ -72,7 +72,7 @@ def test(args):
                     direction = "down"
                     continue
 
-            elif sdloj_adam < 0.090:  # 0.135 for abdomenct, 0.090 for radchestct
+            elif sdloj_adam < 0.135:  # 0.135 for abdomenct, 0.090 for radchestct
 
                 if direction is None:
                     reg_fac = reg_fac - update
@@ -101,7 +101,7 @@ def test(args):
 
     dice_2 = None
     for ckpt_path in args.ckpt_path_2:
-        feature_net = torch.load(ckpt_path).cuda()
+        feature_net = torch.load(ckpt_path, weights_only=False).cuda()
 
         working_point_found = False
         direction = None
