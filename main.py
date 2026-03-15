@@ -287,7 +287,7 @@ if __name__ == "__main__":
     # number of positive pairs for contrastive loss
     parser.add_argument(
         "--num_sampled_featvecs",
-        default=4000,
+        default=1000,
         type=int,
     )
     # temperature factor for infoNCE loss
@@ -299,7 +299,7 @@ if __name__ == "__main__":
     # strength of affine augmentations for contrastive loss
     parser.add_argument(
         "--strength",
-        default=0.05,  # 0.02
+        default=0.02,  # 0.02
         type=int,
     )
 
